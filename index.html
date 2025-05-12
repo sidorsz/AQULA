@@ -11,7 +11,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="icon" type="image/png" href="favicon_512x512.png" sizes="512x512" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script type="module" src="https://unpkg.com/@splinetool/viewer@1.9.92/build/spline-viewer.js"></script>
     <style>
       :root {
         --background: 222.2 84% 4.9%;
@@ -21,6 +20,7 @@
         --border: 217.2 32.6% 17.5%;
       }
       html,
+      
       body {
         height: 100%;
         margin: 0;
@@ -59,6 +59,11 @@
         background: rgba(30, 41, 59, 0.5);
         border: 1px solid rgba(51, 65, 85, 0.5);
         border-radius: 0.5rem;
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+      .card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
       }
       .flip-card {
         perspective: 1000px;
@@ -67,6 +72,7 @@
         position: relative;
         width: 100%;
         height: 100%;
+        transition: transform 0.6s;
         transform-style: preserve-3d;
       }
       .flip-card-front,
@@ -86,52 +92,68 @@
       }
       button {
         border-radius: 0.375rem;
+        transition: background-color 0.2s, transform 0.1s;
+      }
+      button:hover {
+        transform: translateY(-1px);
       }
       .nav-active {
         background: rgba(30, 41, 59, 0.5);
         color: #22d3ee !important;
       }
       .animate-spin-slow {
-        animation: none;
+        animation: spin-slow 3s linear infinite;
       }
       .animate-spin-slower {
-        animation: none;
+        animation: spin-slower 6s linear infinite;
+      }
+      @keyframes spin-slow {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes spin-slower {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(-360deg);
+        }
       }
       #authModal {
-        display: none;
-        opacity: 0;
-        transition: opacity 0.3s ease, transform 0.3s ease;
-        transform: scale(0.95);
+        display: flex; /* Show by default */
       }
-      #authModal.active {
-        display: flex;
-        opacity: 1;
-        transform: scale(1);
-      }
+      
       #loadingOverlay {
         position: fixed;
         inset: 0;
         background: rgba(0, 0, 0, 0.8);
         z-index: 100;
+        transition: opacity 0.3s;
       }
       #loadingOverlay.hidden {
         opacity: 0;
         pointer-events: none;
       }
       .page {
-        transition: none;
+        transition: opacity 0.3s, transform 0.3s;
       }
       .page-hidden {
         opacity: 0;
+        transform: translateY(20px);
         display: none;
       }
       .content-hidden {
-        display: none;
+        display: none; /* Hide all content initially */
       }
       @media (max-width: 768px) {
         .sidebar {
           width: 200px;
           transform: translateX(-100%);
+          transition: transform 0.3s;
         }
         .sidebar.open {
           transform: translateX(0);
@@ -139,9 +161,6 @@
         .main-content {
           margin-left: 0;
           padding: 1rem;
-        }
-        #authModal .max-w-md {
-          max-width: 90%;
         }
       }
       html,
@@ -206,16 +225,19 @@
         gap: 0.5rem;
       }
       .toast {
-        position: fixed;
-        top: 5rem;
-        right: 1rem;
-        z-index: 9999;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        color: white;
-        background-color: rgba(0, 0, 0, 0.8);
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        pointer-events: none;
+  position: fixed;
+  top: 5rem;
+  right: 1rem;
+  z-index: 9999;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  color: white;
+  background-color: rgba(0, 0, 0, 0.8);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  pointer-events: none;
+}
+      .flip-card:hover .flip-card-inner {
+        transform: rotateY(180deg);
       }
       .flip-card-front {
         background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
@@ -225,6 +247,13 @@
         background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(2, 6, 23, 0.95) 100%);
         transform: rotateY(180deg);
         border: 1px solid rgba(100, 116, 139, 0.2);
+      }
+      .card {
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .card:hover {
+        transform: translateY(-6px);
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
       }
       .badge {
         padding: 0.25rem 0.5rem;
@@ -251,13 +280,21 @@
         border-radius: 50%;
         background: rgba(255, 255, 255, 0.7);
         transform: scale(0);
+        animation: mining-ripple 600ms linear;
         pointer-events: none;
         width: 100px;
         height: 100px;
         margin-top: -50px;
         margin-left: -50px;
       }
+      @keyframes mining-ripple {
+        to {
+          transform: scale(4);
+          opacity: 0;
+        }
+      }
       #toggleMiningBtn {
+        transition: all 0.3s ease;
         position: relative;
         overflow: hidden;
       }
@@ -270,369 +307,321 @@
         background: linear-gradient(135deg, #e74c3c, #c0392b);
       }
       #toggleMiningBtn.mining-active {
-        box-shadow: 0 0 20px rgba(52, 152, 219, 0.8);
+        animation: mining-pulse 2s infinite;
+        box-shadow: 0 0 20px rgba(52, 152, 219
+
+, 0.8);
       }
+      @keyframes mining-pulse {
+        0% { box-shadow: 0 0 10px rgba(52, 152, 219, 0.8); }
+        50% { box-shadow: 0 0 20px rgba(52, 152, 219, 1); }
+        100% { box-shadow: 0 0 10px rgba(52, 152, 219, 0.8); }
+      }
+
       .input-error {
-        @apply border-red-500/80 bg-red-900/10 ring-1 ring-red-500/30;
-      }
-      .input-error + .error-message {
-        @apply block text-red-400 text-xs mt-1;
-      }
-      .error-message {
-        color: red;
-        font-size: 12px;
-        margin-top: 4px;
-      }
-      .error-text {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-      }
-      .input-error {
-        border-color: red !important;
-      }
-      .voice-message-container {
-        margin-top: 8px;
-        max-width: 280px;
-      }
-      .voice-message {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        background-color: #f0f2f5;
-        border-radius: 8px;
-      }
-      .voice-message.mine {
-        background-color: #d9fdd3;
-      }
-      .play-pause-btn {
-        background: none;
-        border: none;
-        cursor: pointer;
-        padding: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 24px;
-        height: 24px;
-        color: #3b4a54;
-      }
-      .waveform-container {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-      }
-      .waveform {
-        height: 4px;
-        background-color: rgba(11, 20, 26, 0.15);
-        border-radius: 2px;
-        overflow: hidden;
-        position: relative;
-      }
-      .progress {
-        position: absolute;
-        top: 0;
-        left: 0;
-        height: 100%;
-        background-color: #3b4a54;
-        border-radius: 2px;
-      }
-      .duration {
-        font-size: 11px;
-        color: #3b4a54;
-        align-self: flex-start;
-      }
-      .status {
-        font-size: 14px;
-        color: #8696a0;
-        margin-left: 4px;
-      }
-      #mentionSuggestions {
-        z-index: 10;
-      }
-      .suggestion-item {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px;
-      }
-      .suggestion-item .avatar {
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.875rem;
-      }
-      @media (max-width: 640px) {
-        .chat-message {
-          max-width: 85%;
-        }
-        .voice-message-container {
-          max-width: 100%;
-        }
-        .mentionSuggestions {
-          max-width: 100%;
-        }
-      }
-      p {
-        margin: 0 0 10px 0;
-        text-align: justify;
-      }
-      strong {
-        font-weight: bold;
-      }
-      #log-container {
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-      }
-      #log-container::-webkit-scrollbar {
-        display: none;
-      }
-      .overflow-y-auto::-webkit-scrollbar {
-        display: none;
-      }
-      .overflow-y-auto {
-        scrollbar-width: none;
-      }
-      #syncProgress, #syncProgressTest, #nodeLatency, #currentPeer {
-        display: inline-block !important;
-        opacity: 1 !important;
-        visibility: visible !important;
-        color: #f1f5f9;
-      }
-      .card::-webkit-scrollbar {
-        display: none;
-      }
-      .card {
-        -ms-overflow-style: none;
-        scrollbar-width: none;
-      }
-      header .logo-container {
-        position: relative;
-        z-index: 1;
-      }
-      header span {
-        position: relative;
-        z-index: 2;
-      }
-      /* Portal Page Styles */
-      #portalPage {
-        position: fixed;
-        inset: 0;
-        z-index: 200;
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        opacity: 1;
-        transition: opacity 0.5s ease;
-      }
-      #portalPage.hidden {
-        opacity: 0;
-        pointer-events: none;
-        display: none;
-      }
-      .spline-viewer {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        z-index: -1;
-        opacity: 0.9;
-        pointer-events: auto;
-      }
-      .spline-fallback {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: url('https://images.unsplash.com/photo-1618005182384-a83a8bd66f9e?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80') no-repeat center/cover;
-        z-index: -2;
-        display: none;
-      }
-      .portal-overlay {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: radial-gradient(circle at center, rgba(0,0,0,0.2), rgba(0,0,0,0.7));
-        z-index: -1;
-        pointer-events: none;
-      }
-      .enter-btn {
-        position: relative;
-        overflow: hidden;
-        z-index: 1;
-        backdrop-filter: blur(8px);
-        background: rgba(255,255,255,0.1);
-        border: 1px solid rgba(255,255,255,0.2);
-      }
-      .enter-btn::before {
-        content: '';
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 0;
-        height: 0;
-        background: radial-gradient(circle, rgba(59, 130, 246, 0.5), transparent);
-        transform: translate(-50%, -50%);
-        transition: width 0.6s ease, height 0.6s ease;
-        z-index: -1;
-      }
-      .enter-btn:hover::before {
-        width: 300px;
-        height: 300px;
-      }
-      .enter-btn:hover {
-        box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
-      }
-      .glow {
-        text-shadow: 0 0 15px rgba(59, 130, 246, 0.7), 0 0 30px rgba(147, 51, 234, 0.5);
-      }
-      @keyframes float {
-        0% { transform: translateY(0px); }
-        50% { transform: translateY(-15px); }
-        100% { transform: translateY(0px); }
-      }
-      .floating {
-        animation: float 4s ease-in-out infinite;
-      }
-      .aqua-text {
-        font-family: 'Orbitron', sans-serif;
-        font-size: 7rem;
-        font-weight: 700;
-        letter-spacing: 0.8rem;
-        background: linear-gradient(to right, #3b82f6, #a855f7, #3b82f6);
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-        background-size: 200% auto;
-        animation: shine 4s linear infinite;
-      }
-      @keyframes shine {
-        to {
-          background-position: 200% center;
-        }
-      }
-      .icon-pulse {
-        transition: transform 0.3s ease;
-      }
-      .icon-pulse:hover {
-        transform: scale(1.2);
-      }
-      .loader-dot {
-        animation: pulse 1.5s infinite ease-in-out;
-      }
-      @keyframes pulse {
-        0%, 100% { transform: scale(1); opacity: 0.7; }
-        50% { transform: scale(1.5); opacity: 1; }
-      }
-      .portal-canvas {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        z-index: 0;
-        pointer-events: none;
-      }
-      @media (max-width: 768px) {
-        .aqua-text {
-          font-size: 4rem;
-          letter-spacing: 0.5rem;
-        }
-        .enter-btn {
-          padding: 0.75rem 2rem;
-          font-size: 1rem;
-        }
-      }
-      /* Disable transitions and animations */
-      .card, .card:hover, button, button:hover, .page, #loadingOverlay, .suggestion-item, .suggestion-item:hover, .chat-message, .chat-message.mine, .nav-active, .badge, .voice-message, .voice-message.mine, .play-pause-btn, .waveform, .progress, .duration, .status {
-        transition: none !important;
-        transform: none !important; 
-      }
-      @keyframes spin-slow {}
-      @keyframes spin-slower {}
-      @keyframes mining-pulse {}
-      @keyframes mining-ripple {}
-      @keyframes shake {}
+    @apply border-red-500/80 bg-red-900/10 ring-1 ring-red-500/30;
+}
+
+.input-error + .error-message {
+    @apply block text-red-400 text-xs mt-1;
+}
+
+@keyframes shake {
+    0% { transform: translateX(0); }
+    20% { transform: translateX(-5px); }
+    40% { transform: translateX(5px); }
+    60% { transform: translateX(-5px); }
+    80% { transform: translateX(5px); }
+    100% { transform: translateX(0); }
+}
+
+.shake {
+    animation: shake 0.5s ease-in-out;
+}
+
+.error-message {
+    color: red;
+    font-size: 12px; /* Ukuran lebih kecil */
+    margin-top: 4px;
+}
+
+.error-text {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.input-error {
+    border-color: red !important;
+}
+
+.shake {
+    animation: shake 0.5s;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-5px); }
+    40%, 80% { transform: translateX(5px); }
+}
+/* Voice Message Styles */
+.voice-message-container {
+    margin-top: 8px;
+    max-width: 280px;
+}
+
+.voice-message {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background-color: #f0f2f5;
+    border-radius: 8px;
+}
+
+.voice-message.mine {
+    background-color: #d9fdd3;
+}
+
+.play-pause-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    color: #3b4a54;
+}
+
+.waveform-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.waveform {
+    height: 4px;
+    background-color: rgba(11, 20, 26, 0.15);
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+}
+
+.progress {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background-color: #3b4a54;
+    border-radius: 2px;
+    transition: width 0.1s linear;
+}
+
+.duration {
+    font-size: 11px;
+    color: #3b4a54;
+    align-self: flex-start;
+}
+
+.status {
+    font-size: 14px;
+    color: #8696a0;
+    margin-left: 4px;
+}
+* Styling untuk daftar saran autocompletion */
+#mentionSuggestions {
+    z-index: 10;
+}
+
+.suggestion-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    transition: background-color 0.2s;
+}
+
+.suggestion-item:hover {
+    background: #F3F4F6 !important;
+}
+
+.suggestion-item .avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.875rem;
+}
+
+/* Responsivitas */
+@media (max-width: 640px) {
+    .chat-message {
+        max-width: 85%;
+    }
+    .voice-message-container {
+        max-width: 100%;
+    }
+    #mentionSuggestions {
+        max-width: 100%;
+    }
+}
+p {
+      margin: 0 0 10px 0;
+      text-align: justify;
+    }
+    strong {
+      font-weight: bold;
+    }
+
+.card {
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+  border-radius: 0.5rem;
+  /* No transition, no transform */
+}
+
+
+
+
+.card, .card:hover, button, button:hover, .page, #loadingOverlay, .suggestion-item, .suggestion-item:hover, .chat-message, .chat-message.mine, .nav-active, .badge, .voice-message, .voice-message.mine, .play-pause-btn, .waveform, .progress, .duration, .status {
+  transition: none !important;
+  transform: none !important; 
+}
+
+@keyframes spin-slow {}
+@keyframes spin-slower {}
+@keyframes mining-pulse {}
+@keyframes mining-ripple {}
+@keyframes shake {}
+
+/* Hilangkan scrollbar untuk semua browser */
+#log-container {
+  scrollbar-width: none; /* Untuk Firefox */
+  -ms-overflow-style: none; /* Untuk IE dan Edge */
+}
+
+/* Hilangkan scrollbar untuk Chrome, Safari, dan Opera */
+#log-container::-webkit-scrollbar {
+  display: none;
+}  
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.overflow-y-auto::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for Firefox */
+.overflow-y-auto {
+  scrollbar-width: none;
+}
+
+
+#syncProgress, #syncProgressTest, #nodeLatency, #currentPeer {
+    display: inline-block !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    color: #f1f5f9;
+  }
+  .card::-webkit-scrollbar {
+    display: none;
+  }
+  .card {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .card::-webkit-scrollbar {
+    display: none; /* Menyembunyikan scrollbar di browser berbasis Webkit seperti Chrome dan Safari */
+}
+
+.card {
+    -ms-overflow-style: none; /* Menyembunyikan scrollbar di Internet Explorer dan Edge */
+    scrollbar-width: none; /* Menyembunyikan scrollbar di Firefox */
+}
+
     </style>
   </head>
   <body class="dark relative">
-    <!-- Portal Page -->
-    <div id="portalPage" class="min-h-screen flex flex-col items-center justify-center px-4 py-8">
+   <canvas
+  id="particleCanvas"
+  class="absolute inset-0 w-full h-full opacity-30 pointer-events-none"
+></canvas>
+
 
     
-    
-      <!-- Judul dan deskripsi -->
-      <div class="max-w-md w-full text-center mb-14 z-10">
-        <h1 class="text-3xl md:text-4xl font-bold text-blue-400 mb-4 glow floating">A Q U L A</h1>
-        </div>
-    
-      <!-- Tombol dan animasi loader -->
-      <div class="flex flex-col items-center gap-6 z-10">
-        <button id="enterBtn" class="px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-full text-lg md:text-xl hover:from-blue-400 hover:to-purple-500 shadow-lg hover:shadow-blue-500/50 transition-all duration-300 flex items-center gap-2 md:gap-3">
-          <i class="fas fa-rocket"></i> Enter Portal
-        </button>
-    
-        <!-- Loader dots -->
-        <div class="flex gap-2">
-          <div class="w-3 h-3 md:w-4 md:h-4 rounded-full bg-blue-500 loader-dot"></div>
-          <div class="w-3 h-3 md:w-4 md:h-4 rounded-full bg-purple-500 loader-dot" style="animation-delay: 0.2s;"></div>
-          <div class="w-3 h-3 md:w-4 md:h-4 rounded-full bg-pink-500 loader-dot" style="animation-delay: 0.4s;"></div>
-        </div>
-    
-         </div>
-      </div>
-    </div>
-
-    <!-- Existing Website Content -->
-    <canvas id="particleCanvas" class="absolute inset-0 w-full h-full opacity-30 pointer-events-none"></canvas>
     <header class="w-full bg-slate-900/80 backdrop-blur-md border-b border-slate-800 p-4 z-10 fixed top-0" style="height: 4rem; padding: 0 1rem;">
       <div class="flex items-center justify-between">
         <div class="flex items-center space-x-3">
-          <div class="h-16 w-16 relative overflow-hidden">
-            <iframe class="absolute inset-0 w-full h-full rounded-md" src="https://my.spline.design/3daichatbotrobotoctopus-1dIToVflJfPDzEcxadvPPgdu/" frameborder="0" allowfullscreen></iframe>
-          </div>
-          <span class="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">AQULA</span>
+          <img src="AQLALOG.png" alt="A Icon" class="h-12 w-12 object-contain" />
+          <span class="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+            AQULA
+          </span>
         </div>
-        <div class="flex items-center space-x-3">
-          <div class="relative"></div>
-          <button title="Toggle theme" id="themeToggle" class="text-slate-400 hover:text-slate-100 p-2">
-            <i data-lucide="moon" class="h-5 w-5"></i>
-          </button>
-          <div id="userSection" class="flex items-center space-x-2">
-            <button id="loginBtn" class="text-slate-100 bg-cyan-600 hover:bg-cyan-700 rounded-md px-3 py-1.5 flex items-center">
-              <i data-lucide="user" class="h-4 w-4 mr-2"></i> Login
+       
+          <div class="flex items-center space-x-3">
+            <div class="relative">
+            
+            </div>
+            <button
+              title="Toggle theme"
+              id="themeToggle"
+              class="text-slate-400 hover:text-slate-100 p-2"
+            >
+              <i data-lucide="moon" class="h-5 w-5"></i>
             </button>
+            <div id="userSection" class="flex items-center space-x-2">
+              <button
+                id="loginBtn"
+                class="text-slate-100 bg-cyan-600 hover:bg-cyan-700 rounded-md px-3 py-1.5 flex items-center"
+              >
+                <i data-lucide="user" class="h-4 w-4 mr-2"></i> Login
+              </button>
+            </div>
           </div>
         </div>
       </div>
     </header>
+    
     <div class="flex flex-1 overflow-hidden pt-16 bg-transparent content-hidden">
-      <div class="sidebar"></div>
-      <main class="main-content"></main>
+      <div class="sidebar">
+        <!-- Sidebar content remains unchanged -->
+      </div>
+      <main class="main-content">
+        <!-- Main content remains unchanged -->
+      </main>
     </div>
+
     <div id="loadingOverlay" class="flex items-center justify-center hidden">
       <div class="flex flex-col items-center">
         <div class="relative w-24 h-24">
-          <div class="absolute inset-0 border-4 border-cyan-500/30 rounded-full animate-ping"></div>
-          <div class="absolute inset-2 border-4 border-t-cyan-500 border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin"></div>
-          <div class="absolute inset-4 border-4 border-r-purple-500 border-t-transparent border-b-transparent border-l-transparent rounded-full animate-spin-slow"></div>
-          <div class="absolute inset-6 border-4 border-b-blue-500 border-t-transparent border-r-transparent border-l-transparent rounded-full animate-spin-slower"></div>
-          <div class="absolute inset-8 border-4 border-l-green-500 border-t-transparent border-r-transparent border-b-transparent rounded-full animate-spin"></div>
+          <div
+            class="absolute inset-0 border-4 border-cyan-500/30 rounded-full animate-ping"
+          ></div>
+          <div
+            class="absolute inset-2 border-4 border-t-cyan-500 border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin"
+          ></div>
+          <div
+            class="absolute inset-4 border-4 border-r-purple-500 border-t-transparent border-b-transparent border-l-transparent rounded-full animate-spin-slow"
+          ></div>
+          <div
+            class="absolute inset-6 border-4 border-b-blue-500 border-t-transparent border-r-transparent border-l-transparent rounded-full animate-spin-slower"
+          ></div>
+          <div
+            class="absolute inset-8 border-4 border-l-green-500 border-t-transparent border-r-transparent border-b-transparent rounded-full animate-spin"
+          ></div>
         </div>
-        <div class="mt-4 text-cyan-500 font-mono text-sm tracking-wider">SYSTEM INITIALIZING</div>
+        <div class="mt-4 text-cyan-500 font-mono text-sm tracking-wider">
+          SYSTEM INITIALIZING
+        </div>
       </div>
     </div>
+
     <div id="authModal"
     class="fixed inset-0 bg-transparent flex items-center justify-center z-50 overflow-hidden">
 
@@ -911,26 +900,6 @@
       </div>
     </div>
   </div>
-
-    <script>
-    
-
-          // Enter Portal Button Logic
-      const portalPage = document.getElementById('portalPage');
-let authModal = document.getElementById('authModal');
-      const enterBtn = document.getElementById('enterBtn');
-      enterBtn.addEventListener('click', () => {
-        enterBtn.classList.add('animate-pulse');
-        setTimeout(() => {
-          enterBtn.classList.remove('animate-pulse');
-          portalPage.classList.add('hidden');
-          authModal.classList.add('active');
-        }, 500);
-      });
-    </script>
-
-
-    
 
 
 
@@ -4967,7 +4936,7 @@ document.addEventListener('DOMContentLoaded', function() {
       
         // START: Elemen DOM untuk berbagai fitur
         const loadingOverlay = document.getElementById("loadingOverlay");
-        
+        const authModal = document.getElementById("authModal");
         const authTitle = document.getElementById("authTitle");
         const emailInput = document.getElementById("emailInput");
         const passwordInput = document.getElementById("passwordInput");
@@ -11320,7 +11289,30 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
+// Cegah zoom pakai ctrl/cmd + mouse wheel
+window.addEventListener('wheel', function (e) {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+    }
+  }, { passive: false });
 
+  // Cegah zoom pakai ctrl/cmd + '+' atau '-'
+  window.addEventListener('keydown', function (e) {
+    // Key: '+' or '-' or '=' (di beberapa keyboard '=' digunakan untuk zoom in)
+    if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '=')) {
+      e.preventDefault();
+    }
+
+    // Cegah zoom pakai Ctrl + 0 (reset zoom)
+    if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+      e.preventDefault();
+    }
+  });
+
+  // Cegah zoom gesture (iOS Safari)
+  document.addEventListener('gesturestart', function (e) {
+    e.preventDefault();
+  });
 
 
 
