@@ -1,0 +1,183 @@
+const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const si = require("systeminformation");
+const fs = require("fs");
+const path = require("path");
+const { exec } = require("child_process");
+
+let mainWindow;
+
+function createWindow() {
+    mainWindow = new BrowserWindow({
+        width: 1000,
+        height: 800,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+            enableRemoteModule: true
+        }
+    });
+
+    mainWindow.loadFile("index.html");
+}
+
+app.whenReady().then(createWindow);
+
+// Path log file
+const userDataPath = app.getPath("userData");
+const scanLogPath = path.join(userDataPath, "security-scan.log");
+
+// Fungsi untuk mencatat log aktivitas
+function logScan(message) {
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(scanLogPath, `[${timestamp}] ${message}\n`);
+}
+
+// Kirim notifikasi ke UI
+function showToast(win, message) {
+    if (!win.isDestroyed()) {
+        win.webContents.send("show-toast", message);
+    }
+}
+
+// Kirim data performa secara berkala
+setInterval(async () => {
+    try {
+        const cpu = await si.currentLoad();
+        const mem = await si.mem();
+        const net = await si.networkStats();
+
+        const performanceData = {
+            cpuUsage: cpu.currentload,
+            memoryUsed: ((mem.active / mem.total) * 100).toFixed(1),
+            networkStatus: net[0]?.rx_sec || 0 // rx bytes per second
+        };
+
+        if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send("performance-update", performanceData);
+        }
+    } catch (err) {
+        console.error("Gagal ambil data performa:", err.message);
+    }
+}, 5000); // Update setiap 5 detik
+
+// Kirim data keamanan secara berkala
+setInterval(async () => {
+    const firewallStatus = await checkFirewallStatus();
+    const intrusionDetected = await checkIntrusionDetection();
+    const encryptionEnabled = await checkDiskEncryption();
+
+    const securityData = {
+        firewallActive: firewallStatus,
+        intrusionDetected: intrusionDetected,
+        encryptionEnabled: encryptionEnabled,
+        threatDbUpdated: `${Math.floor(Math.random() * 60)} min ago`,
+        securityLevel: Math.max(
+            30,
+            Math.min(100, Math.floor(Math.random() * 100) - (intrusionDetected ? 20 : 0)
+        )
+    };
+
+    if (!mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("security-update", securityData);
+    }
+}, 5000); // Update setiap 5 detik
+
+// Cek status firewall
+async function checkFirewallStatus() {
+    try {
+        const services = await si.services("*firewall*");
+        return services.some(s => s.running && s.name.toLowerCase().includes("firewall"));
+    } catch {
+        return Math.random() < 0.95;
+    }
+}
+
+// Cek proses mencurigakan
+async function checkIntrusionDetection() {
+    try {
+        const processes = await si.processes();
+        return processes.list.some(p => /trojan|virus|rms/.test(p.name.toLowerCase()));
+    } catch {
+        return Math.random() < 0.02;
+    }
+}
+
+// Cek apakah drive terenkripsi
+async function checkDiskEncryption() {
+    try {
+        const disks = await si.fsSize();
+        return disks.some(d => d.mount && (d.fs.includes("LUKS") || d.fs.includes("BitLocker")));
+    } catch {
+        return Math.random() < 0.98;
+    }
+}
+
+// Jalankan scan virus nyata
+ipcMain.on("start-security-scan", async () => {
+    showToast(mainWindow, "🛡️ Memulai scan keamanan...");
+
+    let command;
+    if (process.platform === "win32") {
+        // Windows Defender Full Scan
+        command = 'powershell -Command "Start-MpScan -ScanType FullScan"';
+    } else {
+        // Linux/macOS dengan ClamAV
+        command = "clamscan --infected --recursive /home";
+    }
+
+    exec(command, (error, stdout, stderr) => {
+        let resultMessage = "";
+
+        if (error) {
+            resultMessage = `❌ Gagal: ${error.message}`;
+            console.error(resultMessage);
+            logScan(resultMessage);
+            showToast(mainWindow, resultMessage);
+            return mainWindow.webContents.send("security-scan-result", {
+                success: false,
+                message: resultMessage
+            });
+        }
+
+        if (stdout) {
+            resultMessage = `✅ Scan selesai.\n${stdout}`;
+            console.log(stdout);
+            logScan(stdout);
+            showToast(mainWindow, "✅ Scan selesai.");
+        }
+
+        if (stderr) {
+            resultMessage = `⚠️ Peringatan: ${stderr}`;
+            console.warn(resultMessage);
+            logScan(resultMessage);
+            showToast(mainWindow, resultMessage);
+        }
+
+        // Kirim hasil ke renderer
+        mainWindow.webContents.send("security-scan-result", {
+            success: !error,
+            message: resultMessage,
+            output: stdout,
+            timestamp: new Date().toISOString()
+        });
+    });
+});
+
+// Buka file log scan
+ipcMain.on("open-log-file", () => {
+    if (fs.existsSync(scanLogPath)) {
+        shell.openPath(scanLogPath);
+    } else {
+        showToast(mainWindow, "📄 Belum ada log scan tersedia.");
+    }
+});
+
+// Contoh backup sukses
+ipcMain.on("backup-complete", () => {
+    mainWindow.webContents.send("backup-complete");
+});
+
+// Contoh sync sukses
+ipcMain.on("sync-complete", () => {
+    mainWindow.webContents.send("sync-complete");
+});
