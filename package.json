@@ -1,0 +1,22 @@
+{
+    "name": "security-dashboard",
+    "version": "1.0.0",
+    "main": "js/main.js",
+    "scripts": {
+        "start": "electron ."
+    },
+    "dependencies": {
+        "axios": "^1.9.0",
+        "dotenv": "^16.5.0",
+        "electron": "^30.0.0",
+        "express": "^5.1.0",
+        "multer": "^1.4.5-lts.2",
+        "security-dashboard": "file:",
+        "systeminformation": "^5.10.0",
+        "tesseract.js": "^6.0.1"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "description": ""
+}
