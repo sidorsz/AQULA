@@ -1,6 +1,7 @@
 {
-  "name": "security-dashboard-backend",
+  "name": "ocr-backend",
   "version": "1.0.0",
+  "description": "Express + Tesseract.js + Gemini API server",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
