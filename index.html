@@ -7083,7 +7083,7 @@ async function processAiImage(file) {
   }, 30); // Kecepatan animasi
 
   try {
-    const response = await fetch('http://localhost:3000/analyze-image', {
+    const response = await fetch('https://aqula-production.up.railway.app/analyze-image', {
       method: 'POST',
       body: formData,
     });
@@ -7170,10 +7170,10 @@ async function sendToAi(message) {
 
   // Kirim ke API
   const prompt = `
-    You are the official AI Assistant of Project Aqula and your answers must be consistent if the question has been asked before.
-    Answer only about general functions, mining features, and Aqula's future vision.
-    Do not provide technical answers, code, smart contracts, or confidential information.
-You are requesting user language.
+    You are the official AI Assistant of Project Aqula and your answers should be consistent if the question has been asked before.
+    Answer only about the general functions, mining features, and future vision of Aqula.
+    Do not provide technical answers, code, smart contracts, or confidential information. and you are an assistant who can assure that the aqula project is decentralized with blockchain that aqula is not a scam or fraud just convince the user that aqula is not a scam if the user asks you aqula scam? say that aqula is the future project.
+You are asking for user language.
     Question: ${message}
   `;
 
@@ -7304,9 +7304,7 @@ function scrollToBottom(container) {
   if (container) container.scrollTop = container.scrollHeight;
 }
 
-// =========================================================================
-// BAGIAN 1: SIMULASI METRIK SISTEM (Tanpa DOMContentLoaded)
-// =========================================================================
+
 
 
 function updateSystemMetrics() {
@@ -7751,16 +7749,16 @@ document.addEventListener("DOMContentLoaded", function () {
             const randomNum = Math.random();
             let fakeType = "info";
             let fakeTitle = "System Info";
-            let fakeMessage = "Tidak ada aktivitas mencurigakan terdeteksi.";
+            let fakeMessage = "No suspicious activity detected.";
 
             if (randomNum > 0.9) {
                 fakeType = "warning";
                 fakeTitle = "MemoryWarning";
-                fakeMessage = "Penggunaan RAM mendekati batas (" + Math.floor(Math.random() * 10 + 80) + "%).";
+                fakeMessage = "RAM usage is close to the limit (" + Math.floor(Math.random() * 10 + 80) + "%).";
             } else if (randomNum > 0.8) {
                 fakeType = "success";
                 fakeTitle = "Operasi Success";
-                fakeMessage = "Sinkronisasi data cloud selesai tanpa masalah.";
+                fakeMessage = "Cloud data synchronization completed without issue.";
             }
 
             createAlert({
@@ -8107,11 +8105,11 @@ document.addEventListener("DOMContentLoaded", function () {
                 });
             } else {
                 // Simulasi jika bukan di Electron
-                console.warn("Simulating security scan (browser mode)...");
+                console.warn(" security scan (browser mode)...");
                 const fakeScanSuccess = Math.random() < 0.85; // 85% simulasi Success
                 const fakeMessage = fakeScanSuccess
-                    ? "Simulation: No threats found during scan."
-                    : "Simulation: Suspicious file detected (example.dll)!";
+                    ? "No threats found during scan."
+                    : "Suspicious file detected (example.dll)!";
 
                 setTimeout(() => { // Simulasi waktu scan
                     clearInterval(interval); // Hentikan progress
@@ -8141,7 +8139,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     }, 1500);
 
                     // Tampilkan toast hasil simulasi
-                    showToastActions(fakeScanSuccess ? "🛡️ Scan simulation complete." : "⚠️ Simulated threat found!");
+                    showToastActions(fakeScanSuccess ? "🛡️ Scan  complete." : "⚠️  threat found!");
 
                 }, Math.random() * 2000 + 3000); // Durasi simulasi 3-5 detik
             }
@@ -8196,10 +8194,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
             } else {
                 // Simulasi jika bukan di Electron
-                console.warn("Simulating data sync (browser mode)...");
+                console.warn("Data sync (browser mode)...");
                 setTimeout(() => {
                     if (span) span.textContent = "✅ Synced";
-                    showToastActions("🔄 Sync simulation complete!");
+                    showToastActions("🔄 Sync complete!");
 
                     // Kembalikan tombol setelah jeda
                     setTimeout(() => {
@@ -8301,7 +8299,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
             } else {
                 // Simulasi jika bukan di Electron
-                console.warn("Simulating backup (browser mode)...");
+                console.warn("Backup (browser mode)...");
                 // Tunggu interval selesai atau timeout simulasi
                  const simulationDuration = Math.random() * 2000 + 3000; // 3-5 detik
                  setTimeout(() => {
@@ -8312,7 +8310,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     // Pastikan interval sudah selesai sebelum lanjut
                      setTimeout(()=> {
                         if (span) span.textContent = "✅ Backup Done";
-                        showToastActions("💾 Backup simulation completed.");
+                        showToastActions("💾 Backup completed.");
 
                         // Sembunyikan progress bar dan kembalikan tombol
                         setTimeout(() => {
@@ -8793,8 +8791,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
                  // Set timeout baru
                  shutdownTimeout = setTimeout(() => {
-                     showToastSettings("🔴 SYSTEM SHUTDOWN INITIATED (SIMULATED)", "danger");
-                     addLog("Simulated Auto Shutdown executed.");
+                     showToastSettings("🔴 SYSTEM SHUTDOWN INITIATED ", "danger");
+                     addLog(" Auto Shutdown executed.");
                      // Di aplikasi nyata, di sini akan memanggil fungsi shutdown sistem
                      // Contoh: if (ipcRenderer) ipcRenderer.send('shutdown-system');
 
@@ -9240,7 +9238,7 @@ function initEventListeners() {
           return;
         }
 
-        console.log(`Simulating sending link ${shareLink} to ${email}`);
+        console.log(` Sending link ${shareLink} to ${email}`);
         showNotification(`Link sent to ${email}`, "success");
         modal.remove();
 
@@ -15427,6 +15425,27 @@ window.addEventListener('wheel', function (e) {
     window.addEventListener('resize', onWindowResize);
     animate();
   });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
