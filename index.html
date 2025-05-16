@@ -12,258 +12,441 @@
     <link rel="icon" type="image/png" href="favicon_512x512.png" sizes="512x512" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+/* Import Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap');
 
-@keyframes loadingProgress {
-    0% { width: 0%; }
-    100% { width: 100%; }
-}
-
-.drop-shadow-gold {
-    filter: drop-shadow(0 0 5px gold);
-}
-.drop-shadow-silver {
-    filter: drop-shadow(0 0 5px silver);
-}
-.drop-shadow-bronze {
-    filter: drop-shadow(0 0 5px #cd7f32);
+/* Root Variables */
+:root {
+  --background: 222.2 84% 4.9%;
+  --foreground: 210 40% 98%;
+  --card: 222.2 84% 4.9%;
+  --card-foreground: 210 40% 98%;
+  --border: 217.2 32.6% 17.5%;
 }
 
-.shadow-neon {
-    box-shadow: 0 0 10px rgba(255,255,255,0.3), 0 0 20px rgba(255,255,255,0.2);
-}
-      /* Efek Glow */
-.drop-shadow-gold {
-    filter: drop-shadow(0 0 5px gold);
-}
-.drop-shadow-silver {
-    filter: drop-shadow(0 0 5px silver);
-}
-.drop-shadow-bronze {
-    filter: drop-shadow(0 0 5px #cd7f32);
+/* Global Styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-.shadow-neon {
-    box-shadow: 0 0 8px rgba(255, 255, 255, 0.4), 0 0 16px rgba(255, 255, 255, 0.3);
-}
-
-/* Optional: Font Futuristik */
-@import url('https://fonts.googleapis.com/css2?family=Orbitron :wght@500&display=swap');
+html,
 body {
-    font-family: 'Orbitron', sans-serif;
+  height: 100%;
+  margin: 0;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  background: linear-gradient(to bottom right, #000000, #1e293b);
+  color: #f1f5f9;
+  overscroll-behavior: none;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
-      :root {
-        --background: 222.2 84% 4.9%;
-        --foreground: 210 40% 98%;
-        --card: 222.2 84% 4.9%;
-        --card-foreground: 210 40% 98%;
-        --border: 217.2 32.6% 17.5%;
-      }
-      html,
-      
-      body {
-        height: 100%;
-        margin: 0;
-        overflow-x: hidden;
-        overflow-y: hidden;
-        background: linear-gradient(to bottom right, #000000, #1e293b);
-        color: #f1f5f9;
-        overscroll-behavior: none;
-      }
-      body {
-        display: flex;
-        flex-direction: column;
-        min-height: 100vh;
-        font-family: system-ui, sans-serif;
-      }
-      .sidebar {
-        width: 310px;
-        height: calc(100vh - 4rem);
-        position: fixed;
-        top: 4rem;
-        left: 0;
-        overflow-y: auto;
-        padding: 1rem;
-        background: rgba(15, 23, 42, 0.8);
-        border-right: 1px solid rgba(51, 65, 85, 0.5);
-      }
-      .main-content {
-        margin-left: 310px;
-        padding: 1.5rem;
-        height: calc(100vh - 4rem);
-        margin-top: 0;
-        overflow-y: auto;
-        background: transparent;
-      }
-      .card {
-        background: rgba(30, 41, 59, 0.5);
-        border: 1px solid rgba(51, 65, 85, 0.5);
-        border-radius: 0.5rem;
-        transition: transform 0.2s, box-shadow 0.2s;
-      }
-      .card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-      }
-      .flip-card {
-        perspective: 1000px;
-      }
-      .flip-card-inner {
-        position: relative;
-        width: 100%;
-        height: 100%;
-        transition: transform 0.6s;
-        transform-style: preserve-3d;
-      }
-      .flip-card-front,
-      .flip-card-back {
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        backface-visibility: hidden;
-        border-radius: 0.5rem;
-      }
-      .flip-card-back {
-        transform: rotateY(180deg);
-        background: rgba(15, 23, 42, 0.95);
-      }
-      .trophy {
-        filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.5));
-      }
-      button {
-        border-radius: 0.375rem;
-        transition: background-color 0.2s, transform 0.1s;
-      }
-      button:hover {
-        transform: translateY(-1px);
-      }
-      .nav-active {
-        background: rgba(30, 41, 59, 0.5);
-        color: #22d3ee !important;
-      }
-      .animate-spin-slow {
-        animation: spin-slow 3s linear infinite;
-      }
-      .animate-spin-slower {
-        animation: spin-slower 6s linear infinite;
-      }
-      @keyframes spin-slow {
-        from {
-          transform: rotate(0deg);
-        }
-        to {
-          transform: rotate(360deg);
-        }
-      }
-      @keyframes spin-slower {
-        from {
-          transform: rotate(0deg);
-        }
-        to {
-          transform: rotate(-360deg);
-        }
-      }
-      #authModal {
-        display: flex; /* Show by default */
-      }
-      
-      #loadingOverlay {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.8);
-        z-index: 100;
-        transition: opacity 0.3s;
-      }
-      #loadingOverlay.hidden {
-        opacity: 0;
-        pointer-events: none;
-      }
-      .page {
-        transition: opacity 0.3s, transform 0.3s;
-      }
-      .page-hidden {
-        opacity: 0;
-        transform: translateY(20px);
-        display: none;
-      }
-      .content-hidden {
-        display: none; /* Hide all content initially */
-      }
-      @media (max-width: 768px) {
-        .sidebar {
-          width: 200px;
-          transform: translateX(-100%);
-          transition: transform 0.3s;
-        }
-        .sidebar.open {
-          transform: translateX(0);
-        }
-        .main-content {
-          margin-left: 0;
-          padding: 1rem;
-        }
-      }
-      html,
-      body {
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-      }
-      body::-webkit-scrollbar,
-      .sidebar::-webkit-scrollbar,
-      .main-content::-webkit-scrollbar {
-        display: none;
-      }
-      .chat-container {
-        display: flex;
-        flex-direction: column;
-        gap: 1rem;
-      }
-      .chat-messages {
-        display: flex;
-        flex-direction: column;
-        gap: 0.75rem;
-      }
-      .chat-message {
-        display: flex;
-        flex-direction: column;
-        max-width: 80%;
-        padding: 0.75rem;
-        border-radius: 0.5rem;
-        background: rgba(30, 41, 59, 0.7);
-        border: 1px solid rgba(51, 65, 85, 0.5);
-      }
-      .chat-message.mine {
-        align-self: flex-end;
-        background: rgba(34, 211, 238, 0.2);
-        border-color: rgba(34, 211, 238, 0.5);
-      }
-      .chat-message .avatar {
-        width: 1.5rem;
-        height: 1.5rem;
-        border-radius: 50%;
-        background: rgba(34, 211, 238, 0.5);
-        color: #fff;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.75rem;
-        font-weight: bold;
-        margin-bottom: 0.5rem;
-      }
-      .chat-message .content {
-        font-size: 0.875rem;
-        color: #e2e8f0;
-      }
-      .chat-message .meta {
-        font-size: 0.75rem;
-        color: #94a3b8;
-        margin-top: 0.25rem;
-      }
-      .chat-input {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-      }
-      .toast {
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  display: none;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  font-family: 'Orbitron', system-ui, sans-serif;
+}
+
+p {
+  margin: 0 0 10px 0;
+  text-align: justify;
+}
+
+strong {
+  font-weight: bold;
+}
+
+/* Animations */
+@keyframes loadingProgress {
+  0% { width: 0%; }
+  100% { width: 100%; }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes spin-slower {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
+}
+
+@keyframes mining-ripple {
+  to {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+@keyframes mining-pulse {
+  0% { box-shadow: 0 0 10px rgba(52, 152, 219, 0.8); }
+  50% { box-shadow: 0 0 20px rgba(52, 152, 219, 1); }
+  100% { box-shadow: 0 0 10px rgba(52, 152, 219, 0.8); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-5px); }
+  40%, 80% { transform: translateX(5px); }
+}
+
+/* Effects */
+.drop-shadow-gold {
+  filter: drop-shadow(0 0 5px gold);
+}
+
+.drop-shadow-silver {
+  filter: drop-shadow(0 0 5px silver);
+}
+
+.drop-shadow-bronze {
+  filter: drop-shadow(0 0 5px #cd7f32);
+}
+
+.shadow-neon {
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.4), 0 0 16px rgba(255, 255, 255, 0.3);
+}
+
+.trophy {
+  filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.5));
+}
+
+.mining-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.7);
+  transform: scale(0);
+  animation: mining-ripple 600ms linear;
+  pointer-events: none;
+  width: 100px;
+  height: 100px;
+  margin-top: -50px;
+  margin-left: -50px;
+}
+
+/* Layout */
+.sidebar {
+  width: 310px;
+  height: calc(100vh - 4rem);
+  position: fixed;
+  top: 4rem;
+  left: 0;
+  overflow-y: auto;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.8);
+  border-right: 1px solid rgba(51, 65, 85, 0.5);
+  scrollbar-width: none;
+}
+
+.sidebar::-webkit-scrollbar {
+  display: none;
+}
+
+.main-content {
+  margin-left: 310px;
+  padding: 1.5rem;
+  height: calc(100vh - 4rem);
+  margin-top: 0;
+  overflow-y: auto;
+  background: transparent;
+  scrollbar-width: none;
+}
+
+.main-content::-webkit-scrollbar {
+  display: none;
+}
+
+/* Components */
+.card {
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+  border-radius: 0.5rem;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.card::-webkit-scrollbar {
+  display: none;
+}
+
+.flip-card {
+  perspective: 1000px;
+}
+
+.flip-card-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.6s;
+  transform-style: preserve-3d;
+}
+
+.flip-card-front,
+.flip-card-back {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  border-radius: 0.5rem;
+}
+
+.flip-card-front {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
+  border: 1px solid rgba(71, 85, 105, 0.3);
+}
+
+.flip-card-back {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(2, 6, 23, 0.95) 100%);
+  transform: rotateY(180deg);
+  border: 1px solid rgba(100, 116, 139, 0.2);
+}
+
+.flip-card:hover .flip-card-inner {
+  transform: rotateY(180deg);
+}
+
+.badge {
+  padding: 0.25rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  display: inline-block;
+}
+
+button {
+  border-radius: 0.375rem;
+}
+
+.nav-active {
+  background: rgba(30, 41, 59, 0.5);
+  color: #22d3ee !important;
+}
+
+/* Chat Components */
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.chat-message {
+  display: flex;
+  flex-direction: column;
+  max-width: 80%;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+}
+
+.chat-message.mine {
+  align-self: flex-end;
+  background: rgba(34, 211, 238, 0.2);
+  border-color: rgba(34, 211, 238, 0.5);
+}
+
+.chat-message .avatar {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: rgba(34, 211, 238, 0.5);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+
+.chat-message .content {
+  font-size: 0.875rem;
+  color: #e2e8f0;
+}
+
+.chat-message .meta {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-top: 0.25rem;
+}
+
+.chat-input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chat-input-container {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+/* Voice Message */
+.voice-message-container {
+  margin-top: 8px;
+  max-width: 280px;
+}
+
+.voice-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: #f0f2f5;
+  border-radius: 8px;
+}
+
+.voice-message.mine {
+  background-color: #d9fdd3;
+}
+
+.play-pause-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: #3b4a54;
+}
+
+.waveform-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.waveform {
+  height: 4px;
+  background-color: rgba(11, 20, 26, 0.15);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background-color: #3b4a54;
+  border-radius: 2px;
+}
+
+.duration {
+  font-size: 11px;
+  color: #3b4a54;
+  align-self: flex-start;
+}
+
+.status {
+  font-size: 14px;
+  color: #8696a0;
+  margin-left: 4px;
+}
+
+/* Autocomplete Suggestions */
+#mentionSuggestions {
+  z-index: 10;
+}
+
+.suggestion-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+}
+
+.suggestion-item:hover {
+  background: #f3f4f6 !important;
+}
+
+.suggestion-item .avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+}
+
+/* Overlays and Modals */
+#authModal {
+  display: flex;
+}
+
+#loadingOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 100;
+}
+
+#loadingOverlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Page Transitions */
+.page {
+  opacity: 1;
+}
+
+.page-hidden {
+  opacity: 0;
+  display: none;
+}
+
+.content-hidden {
+  display: none;
+}
+
+/* Mining Button */
+#toggleMiningBtn {
+  position: relative;
+  overflow: hidden;
+}
+
+#toggleMiningBtn.starting {
+  box-shadow: 0 0 15px rgba(46, 204, 113, 0.6);
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
+}
+
+#toggleMiningBtn.stopping {
+  box-shadow: 0 0 15px rgba(231, 76, 60, 0.6);
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+}
+
+#toggleMiningBtn.mining-active {
+  animation: mining-pulse 2s infinite;
+  box-shadow: 0 0 20px rgba(52, 152, 219, 0.8);
+}
+
+/* Toast Notifications */
+.toast {
   position: fixed;
   top: 5rem;
   right: 1rem;
@@ -275,316 +458,124 @@ body {
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   pointer-events: none;
 }
-      .flip-card:hover .flip-card-inner {
-        transform: rotateY(180deg);
-      }
-      .flip-card-front {
-        background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
-        border: 1px solid rgba(71, 85, 105, 0.3);
-      }
-      .flip-card-back {
-        background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(2, 6, 23, 0.95) 100%);
-        transform: rotateY(180deg);
-        border: 1px solid rgba(100, 116, 139, 0.2);
-      }
-      .card {
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-      }
-      .card:hover {
-        transform: translateY(-6px);
-        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-      }
-      .badge {
-        padding: 0.25rem 0.5rem;
-        border-radius: 9999px;
-        font-size: 0.75rem;
-        line-height: 1rem;
-        font-weight: 500;
-        display: inline-block;
-      }
-      .chat-input-container {
-        @apply flex space-x-3 mt-6 items-center;
-      }
-      textarea::-webkit-scrollbar {
-        width: 6px;
-      }
-      textarea::-webkit-scrollbar-track {
-        @apply bg-slate-800/30 rounded-full;
-      }
-      textarea::-webkit-scrollbar-thumb {
-        @apply bg-slate-600/50 rounded-full hover:bg-slate-500/60;
-      }
-      .mining-ripple {
-        position: absolute;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.7);
-        transform: scale(0);
-        animation: mining-ripple 600ms linear;
-        pointer-events: none;
-        width: 100px;
-        height: 100px;
-        margin-top: -50px;
-        margin-left: -50px;
-      }
-      @keyframes mining-ripple {
-        to {
-          transform: scale(4);
-          opacity: 0;
-        }
-      }
-      #toggleMiningBtn {
-        transition: all 0.3s ease;
-        position: relative;
-        overflow: hidden;
-      }
-      #toggleMiningBtn.starting {
-        box-shadow: 0 0 15px rgba(46, 204, 113, 0.6);
-        background: linear-gradient(135deg, #2ecc71, #27ae60);
-      }
-      #toggleMiningBtn.stopping {
-        box-shadow: 0 0 15px rgba(231, 76, 60, 0.6);
-        background: linear-gradient(135deg, #e74c3c, #c0392b);
-      }
-      #toggleMiningBtn.mining-active {
-        animation: mining-pulse 2s infinite;
-        box-shadow: 0 0 20px rgba(52, 152, 219
 
-, 0.8);
-      }
-      @keyframes mining-pulse {
-        0% { box-shadow: 0 0 10px rgba(52, 152, 219, 0.8); }
-        50% { box-shadow: 0 0 20px rgba(52, 152, 219, 1); }
-        100% { box-shadow: 0 0 10px rgba(52, 152, 219, 0.8); }
-      }
-
-      .input-error {
-    @apply border-red-500/80 bg-red-900/10 ring-1 ring-red-500/30;
+/* Error States */
+.input-error {
+  border-color: red !important;
+  background: rgba(255, 0, 0, 0.1);
+  border: 1px solid rgba(255, 0, 0, 0.8);
 }
 
 .input-error + .error-message {
-    @apply block text-red-400 text-xs mt-1;
-}
-
-@keyframes shake {
-    0% { transform: translateX(0); }
-    20% { transform: translateX(-5px); }
-    40% { transform: translateX(5px); }
-    60% { transform: translateX(-5px); }
-    80% { transform: translateX(5px); }
-    100% { transform: translateX(0); }
-}
-
-.shake {
-    animation: shake 0.5s ease-in-out;
+  display: block;
+  color: #f87171;
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
 }
 
 .error-message {
-    color: red;
-    font-size: 12px; /* Ukuran lebih kecil */
-    margin-top: 4px;
+  color: red;
+  font-size: 12px;
+  margin-top: 4px;
 }
 
 .error-text {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
-
-.input-error {
-    border-color: red !important;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .shake {
-    animation: shake 0.5s;
+  animation: shake 0.5s ease-in-out;
 }
 
-@keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    20%, 60% { transform: translateX(-5px); }
-    40%, 80% { transform: translateX(5px); }
-}
-/* Voice Message Styles */
-.voice-message-container {
-    margin-top: 8px;
-    max-width: 280px;
+/* Scrollbar Customization */
+textarea::-webkit-scrollbar {
+  width: 6px;
 }
 
-.voice-message {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    background-color: #f0f2f5;
-    border-radius: 8px;
+textarea::-webkit-scrollbar-track {
+  background: rgba(30, 41, 59, 0.3);
+  border-radius: 9999px;
 }
 
-.voice-message.mine {
-    background-color: #d9fdd3;
+textarea::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.5);
+  border-radius: 9999px;
 }
 
-.play-pause-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    color: #3b4a54;
+textarea::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.6);
 }
 
-.waveform-container {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.waveform {
-    height: 4px;
-    background-color: rgba(11, 20, 26, 0.15);
-    border-radius: 2px;
-    overflow: hidden;
-    position: relative;
-}
-
-.progress {
-    position: absolute;
-    top: 0;
-    left: 0;
-    height: 100%;
-    background-color: #3b4a54;
-    border-radius: 2px;
-    transition: width 0.1s linear;
-}
-
-.duration {
-    font-size: 11px;
-    color: #3b4a54;
-    align-self: flex-start;
-}
-
-.status {
-    font-size: 14px;
-    color: #8696a0;
-    margin-left: 4px;
-}
-* Styling untuk daftar saran autocompletion */
-#mentionSuggestions {
-    z-index: 10;
-}
-
-.suggestion-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px;
-    transition: background-color 0.2s;
-}
-
-.suggestion-item:hover {
-    background: #F3F4F6 !important;
-}
-
-.suggestion-item .avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.875rem;
-}
-
-/* Responsivitas */
-@media (max-width: 640px) {
-    .chat-message {
-        max-width: 85%;
-    }
-    .voice-message-container {
-        max-width: 100%;
-    }
-    #mentionSuggestions {
-        max-width: 100%;
-    }
-}
-p {
-      margin: 0 0 10px 0;
-      text-align: justify;
-    }
-    strong {
-      font-weight: bold;
-    }
-
-.card {
-  background: rgba(30, 41, 59, 0.5);
-  border: 1px solid rgba(51, 65, 85, 0.5);
-  border-radius: 0.5rem;
-  /* No transition, no transform */
-}
-
-
-
-
-.card, .card:hover, button, button:hover, .page, #loadingOverlay, .suggestion-item, .suggestion-item:hover, .chat-message, .chat-message.mine, .nav-active, .badge, .voice-message, .voice-message.mine, .play-pause-btn, .waveform, .progress, .duration, .status {
-  transition: none !important;
-  transform: none !important; 
-}
-
-@keyframes spin-slow {}
-@keyframes spin-slower {}
-@keyframes mining-pulse {}
-@keyframes mining-ripple {}
-@keyframes shake {}
-
-/* Hilangkan scrollbar untuk semua browser */
-#log-container {
-  scrollbar-width: none; /* Untuk Firefox */
-  -ms-overflow-style: none; /* Untuk IE dan Edge */
-}
-
-/* Hilangkan scrollbar untuk Chrome, Safari, dan Opera */
-#log-container::-webkit-scrollbar {
-  display: none;
-}  
-
-/* Hide scrollbar for Chrome, Safari and Opera */
-.overflow-y-auto::-webkit-scrollbar {
-  display: none;
-}
-
-/* Hide scrollbar for Firefox */
 .overflow-y-auto {
   scrollbar-width: none;
 }
 
-
-#syncProgress, #syncProgressTest, #nodeLatency, #currentPeer {
-    display: inline-block !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-    color: #f1f5f9;
-  }
-  .card::-webkit-scrollbar {
-    display: none;
-  }
-  .card {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-
-  .card::-webkit-scrollbar {
-    display: none; /* Menyembunyikan scrollbar di browser berbasis Webkit seperti Chrome dan Safari */
+.overflow-y-auto::-webkit-scrollbar {
+  display: none;
 }
 
-.card {
-    -ms-overflow-style: none; /* Menyembunyikan scrollbar di Internet Explorer dan Edge */
-    scrollbar-width: none; /* Menyembunyikan scrollbar di Firefox */
+#log-container {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-    </style>
+#log-container::-webkit-scrollbar {
+  display: none;
+}
+
+/* Utility Classes */
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}
+
+.animate-spin-slower {
+  animation: spin-slower 6s linear infinite;
+}
+
+/* Status Indicators */
+#syncProgress,
+#syncProgressTest,
+#nodeLatency,
+#currentPeer {
+  display: inline-block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  color: #f1f5f9;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 200px;
+    transform: translateX(-100%);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .main-content {
+    margin-left: 0;
+    padding: 1rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .chat-message {
+    max-width: 85%;
+  }
+
+  .voice-message-container {
+    max-width: 100%;
+  }
+
+  #mentionSuggestions {
+    max-width: 100%;
+  }
+}
+</style>
   </head>
   <body class="dark relative">
    <canvas
@@ -637,36 +628,73 @@ p {
       </main>
     </div>
 
-    <div id="loadingOverlay" class="flex items-center justify-center hidden">
+    <div id="loadingOverlay" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm hidden">
       <div class="flex flex-col items-center">
-        <div class="relative w-24 h-24">
-          <div
-            class="absolute inset-0 border-4 border-cyan-500/30 rounded-full animate-ping"
-          ></div>
-          <div
-            class="absolute inset-2 border-4 border-t-cyan-500 border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin"
-          ></div>
-          <div
-            class="absolute inset-4 border-4 border-r-purple-500 border-t-transparent border-b-transparent border-l-transparent rounded-full animate-spin-slow"
-          ></div>
-          <div
-            class="absolute inset-6 border-4 border-b-blue-500 border-t-transparent border-r-transparent border-l-transparent rounded-full animate-spin-slower"
-          ></div>
-          <div
-            class="absolute inset-8 border-4 border-l-green-500 border-t-transparent border-r-transparent border-b-transparent rounded-full animate-spin"
-          ></div>
+        <div class="relative w-32 h-32">
+          <!-- Pulsing Galaxy Core -->
+          <div class="absolute inset-4 rounded-full bg-gradient-to-br from-cyan-500/10 to-blue-500/10 shadow-inner animate-pulse"></div>
+          
+          <!-- Concentric Circles -->
+          <div class="absolute inset-0 border-4 border-cyan-500/20 rounded-full animate-ping"></div>
+          <div class="absolute inset-2 border-4 border-t-cyan-400 border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin shadow-[0_0_10px_2px_rgba(34,211,238,0.3)]"></div>
+          <div class="absolute inset-4 border-4 border-r-purple-400 border-t-transparent border-b-transparent border-l-transparent rounded-full animate-spin-slow shadow-[0_0_8px_1px_rgba(192,132,252,0.3)]"></div>
+          <div class="absolute inset-6 border-4 border-b-blue-400 border-t-transparent border-r-transparent border-l-transparent rounded-full animate-spin-slower shadow-[0_0_6px_1px_rgba(96,165,250,0.3)]"></div>
+          <div class="absolute inset-8 border-4 border-l-green-400 border-t-transparent border-r-transparent border-b-transparent rounded-full animate-spin shadow-[0_0_5px_1px_rgba(74,222,128,0.3)]"></div>
+          
+          <!-- Center Particle -->
+          <div class="absolute inset-10 rounded-full bg-cyan-400/80 animate-pulse shadow-[0_0_15px_5px_rgba(34,211,238,0.4)]"></div>
         </div>
-        <div class="mt-4 text-cyan-500 font-mono text-sm tracking-wider">
-          SYSTEM INITIALIZING
+        
+        <!-- Text with Futuristic Colors -->
+        <div class="mt-6 text-center">
+          <div class="font-mono text-sm tracking-wider flex items-center justify-center">
+            <span class="animate-pulse text-cyan-300">S</span>
+            <span class="animate-pulse delay-75 text-purple-300">Y</span>
+            <span class="animate-pulse delay-100 text-blue-300">S</span>
+            <span class="animate-pulse delay-150 text-indigo-300">T</span>
+            <span class="animate-pulse delay-200 text-violet-300">E</span>
+            <span class="animate-pulse delay-250 text-fuchsia-300">M</span>
+            <span class="mx-2 text-gray-400">•</span>
+            <span class="animate-pulse delay-300 text-cyan-400">I</span>
+            <span class="animate-pulse delay-350 text-emerald-300">N</span>
+            <span class="animate-pulse delay-400 text-teal-300">I</span>
+            <span class="animate-pulse delay-450 text-sky-300">T</span>
+            <span class="animate-pulse delay-500 text-rose-300">I</span>
+            <span class="animate-pulse delay-550 text-pink-300">A</span>
+            <span class="animate-pulse delay-600 text-amber-300">L</span>
+            <span class="animate-pulse delay-650 text-lime-300">I</span>
+            <span class="animate-pulse delay-700 text-yellow-300">Z</span>
+            <span class="animate-pulse delay-750 text-orange-300">I</span>
+            <span class="animate-pulse delay-800 text-red-300">N</span>
+            <span class="animate-pulse delay-850 text-green-300">G</span>
+          </div>
+          
+          <!-- Progress Bar (width matched to text) -->
+          <div class="mt-2 h-0.5 bg-gray-700 rounded-full overflow-hidden" style="width: calc(19 * 0.5rem + 0.5rem);">
+            <div class="h-full bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full animate-progress"></div>
+          </div>
+          
+          <!-- Hex Codes -->
+          <div class="text-xs text-gray-500 font-mono mt-1">A Q U L A</div>
         </div>
       </div>
     </div>
+    
+    <style>
+      @keyframes progress {
+        from { width: 0%; }
+        to { width: 100%; }
+      }
+      .animate-progress {
+        animation: progress 2.5s ease-in-out infinite;
+      }
+    </style>
 
     <div id="authModal"
     class="fixed inset-0 bg-transparent flex items-center justify-center z-50 overflow-hidden">
 
     <!-- Video Background -->
-    <video autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover">
+    <video autoplay muted loop playsinline class="absolute inset-0 w-full h-95 px object-cover">
         <source src="authmodal.mp4" type="video/mp4">
         Your browser does not support the video tag.
     </video>
@@ -675,7 +703,9 @@ p {
     <div class="absolute inset-0 bg-gradient-to-b from-slate-900/80 via-slate-900/60 to-slate-900/90"></div>
 
     <!-- Modal Card -->
-    <div class="relative z-10 bg-gradient-to-br from-slate-900 via-slate-800/80 to-slate-900 border border-slate-700/30 rounded-xl p-8 w-full max-w-md shadow-2xl shadow-cyan-500/10 transform transition-all duration-300 scale-95 backdrop-blur-sm">
+    <div class="relative z-10 bg-gradient-to-br from-slate-900 via-slate-800/80 to-slate-900 border border-slate-700/30 rounded-lg p-6 w-full max-w-sm shadow-lg shadow-cyan-500/5 transform transition-all duration-300 scale-90 backdrop-blur-sm">
+      <!-- Konten modal di sini -->
+  
       
       <div class="flex justify-between items-center mb-8">
         <div>
@@ -1174,11 +1204,12 @@ p {
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
     </svg>
     Start Mining
-    <span class="ml-2 text-xs opacity-70 group-hover:opacity-100">(CTRL+M)</span>
+    <span class="ml-2 text-xs opacity-70 group-hover:opacity-100"></span>
   </button>
 </div>
 </div>
 </div>
+
 
           <!-- System Overview Card -->
     <div class="card bg-gradient-to-br from-slate-800/70 to-slate-900/70 rounded-xl overflow-hidden border border-slate-700/50 shadow-xl m-4">
@@ -5440,7 +5471,7 @@ async function checkUser() {
 
     } catch (error) {
         console.error('Error dalam checkUser:', error);
-        showToast("Error", "Gagal memuat profil pengguna.", "destructive");
+        showToast("Error", "Failed to load user profile.", "destructive");
         window.currentUser = null;
         updateUI();
         authModal.style.display = "flex";
@@ -6147,7 +6178,7 @@ googleAuthBtn.addEventListener("click", async () => {
             updateUI();
             showToast("Success", `${walletType} successfully connected.`);
         } catch (error) {
-            showToast("Error", error.message || "Gagal menghubungkan wallet.", "destructive");
+            showToast("Error", error.message || "Failed to connect wallet.", "destructive");
         }
     }
 
@@ -6220,7 +6251,7 @@ googleAuthBtn.addEventListener("click", async () => {
             return;
         }
 
-        // Panggil showToast setelah sukses
+        // Panggil showToast setelah Success
         showToast("Success", "A password reset link has been sent to your email. Check your spam folder if it's not there.", "success");
 
         // Sembunyikan form lupa password & tampilkan login
@@ -7056,7 +7087,7 @@ async function processAiImage(file) {
       method: 'POST',
       body: formData,
     });
-    if (!response.ok) throw new Error('Gagal menganalisis gambar');
+    if (!response.ok) throw new Error('Failed to analyze the image');
     const data = await response.json();
 
     if (data.description && data.description.trim()) {
@@ -7153,14 +7184,14 @@ You are requesting user language.
       body: JSON.stringify({ prompt }),
     });
 
-    if (!response.ok) throw new Error('Gagal menghubungi server');
+    if (!response.ok) throw new Error('Failed to contact the server');
 
     const data = await response.json();
     addAiMessage('AI Assistant', data.completion, false);
     updateAiMessageCount();
   } catch (error) {
     console.error('Error:', error);
-    addAiMessage('AI Assistant', 'Error: Tidak dapat menghubungi server.', false);
+    addAiMessage('AI Assistant', 'Error: Unable to contact the server.', false);
     updateAiMessageCount();
   }
 }
@@ -7371,7 +7402,7 @@ function updateSecurityUI(data) {
             intrusionBadge.textContent = "⚠️ Threat Detected!";
             intrusionBadge.className = "bg-gradient-to-r from-red-900/30 to-red-800/20 text-red-400 border border-red-700/50 rounded-md px-2 py-1 text-xs animate-pulse";
             // Tampilkan notifikasi toast jika ancaman terdeteksi
-            showToastSecurity("⚠️ Ancaman terdeteksi! Periksa aktivitas jaringan.", "danger");
+           
         }
     }
 
@@ -7536,7 +7567,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 });
             }
         } catch (err) {
-            console.warn("Gagal mengambil data RAM:", err.message);
+            console.warn("Failed to retrieve RAM data:", err.message);
         }
     }
     /**
@@ -7567,7 +7598,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 });
             }
         } catch (err) {
-            console.warn("Gagal memeriksa proses:", err.message);
+            console.warn("Failed to check the process:", err.message);
         }
     }
     /**
@@ -7580,10 +7611,10 @@ document.addEventListener("DOMContentLoaded", function () {
         ipcRenderer.on("security-scan-result", (event, result) => {
             createAlert({
                 type: result.success ? "success" : "warning",
-                title: result.success ? "Scan Selesai" : "Ancaman Terdeteksi!", // Judul disesuaikan
+                title: result.success ? "Scan Finish" : "Threat Detected!", // Judul disesuaikan
                 message: result.message || (result.success
-                    ? "Pemindaian keamanan selesai tanpa ancaman."
-                    : "Virus atau potensi ancaman terdeteksi selama pemindaian."),
+                    ? "Security scan completed without threat."
+                    : "Viruses or potential threats detected during the scan."),
                 time: new Date().toLocaleTimeString()
             });
         });
@@ -7591,18 +7622,18 @@ document.addEventListener("DOMContentLoaded", function () {
         // Listener untuk notifikasi backup selesai
         ipcRenderer.on("backup-complete", (event, result) => { // Tambahkan parameter result jika ada
             createAlert({
-                type: result && result.success === false ? "warning" : "success", // Cek status sukses
-                title: "💾 Backup " + (result && result.success === false ? "Gagal" : "Selesai"),
-                message: result && result.message ? result.message : "Data cadangan berhasil disimpan."
+                type: result && result.success === false ? "warning" : "success", // Cek status Success
+                title: "💾 Backup " + (result && result.success === false ? "Failed" : "Finish"),
+                message: result && result.message ? result.message : "Backup data saved successfully."
             });
         });
 
         // Listener untuk notifikasi sinkronisasi selesai
         ipcRenderer.on("sync-complete", (event, result) => { // Tambahkan parameter result jika ada
             createAlert({
-                type: result && result.success === false ? "warning" : "success", // Cek status sukses
-                title: "🔄 Sinkronisasi " + (result && result.success === false ? "Gagal" : "Sukses"),
-                message: result && result.message ? result.message : "Data berhasil disinkronkan dengan server."
+                type: result && result.success === false ? "warning" : "success", // Cek status Success
+                title: "🔄 Sinkronisasi " + (result && result.success === false ? "Gagal" : "Success"),
+                message: result && result.message ? result.message : "Data is successfully synchronized with the server."
             });
         });
     }
@@ -7728,7 +7759,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 fakeMessage = "Penggunaan RAM mendekati batas (" + Math.floor(Math.random() * 10 + 80) + "%).";
             } else if (randomNum > 0.8) {
                 fakeType = "success";
-                fakeTitle = "Operasi Sukses";
+                fakeTitle = "Operasi Success";
                 fakeMessage = "Sinkronisasi data cloud selesai tanpa masalah.";
             }
 
@@ -8077,7 +8108,7 @@ document.addEventListener("DOMContentLoaded", function () {
             } else {
                 // Simulasi jika bukan di Electron
                 console.warn("Simulating security scan (browser mode)...");
-                const fakeScanSuccess = Math.random() < 0.85; // 85% simulasi sukses
+                const fakeScanSuccess = Math.random() < 0.85; // 85% simulasi Success
                 const fakeMessage = fakeScanSuccess
                     ? "Simulation: No threats found during scan."
                     : "Simulation: Suspicious file detected (example.dll)!";
@@ -8135,7 +8166,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
                 // Listener HANYA SEKALI untuk hasil sync
                 ipcRenderer.once("sync-complete", (event, result) => {
-                    const success = !(result && result.success === false); // Anggap sukses jika tidak ada info gagal
+                    const success = !(result && result.success === false); // Anggap Success jika tidak ada info gagal
                     const message = result && result.message ? result.message : (success ? "Data synced successfully." : "Sync failed.");
 
                      if (span) span.textContent = success ? "✅ Synced" : "❌ Sync Failed";
@@ -8645,7 +8676,7 @@ document.addEventListener("DOMContentLoaded", function () {
      * @description Mensimulasikan aksi asynchronous (misalnya API call) dengan delay.
      * @param {string} actionName - Nama aksi untuk logging.
      * @param {number} [duration=1000] - Durasi simulasi dalam milidetik.
-     * @returns {Promise<string>} Promise yang resolve dengan pesan sukses.
+     * @returns {Promise<string>} Promise yang resolve dengan pesan Success.
      */
     function simulateAsyncAction(actionName, duration = 1000) {
         // console.log(`Starting async action: ${actionName}...`);
@@ -8678,7 +8709,7 @@ document.addEventListener("DOMContentLoaded", function () {
             showToastSettings(toastMessage, toastType);
             try {
                  const result = await simulateAsyncAction(actionName, isActive ? 1200 : 800);
-                 addLog(result); // Log hasil sukses
+                 addLog(result); // Log hasil Success
             } catch (error) {
                  console.error(`${actionName} failed:`, error);
                  showToastSettings(`Error during ${actionName}`, "danger");
@@ -9600,14 +9631,14 @@ async function loadFolders() {
                         <img src="${folderIcon}" alt="Folder Icon" class="w-full h-full object-contain">
                     </div>
                     <div class="relative">
-                        <button class="folder-menu-btn bg-slate-700/50 hover:bg-slate-600/50 rounded-full p-1">
-                            <i data-lucide="more-vertical" class="h-4 w-4 text-slate-400"></i>
-                        </button>
-                        <div class="folder-menu hidden absolute right-0 mt-2 w-48 bg-slate-800 rounded-lg shadow-lg z-10">
-                            <button class="folder-settings-btn block w-full text-left px-4 py-2 text-sm text-white hover:bg-slate-700/50">Change Icon</button>
-                            <button class="folder-delete-btn block w-full text-left px-4 py-2 text-sm text-white hover:bg-slate-700/50">Delete Folder</button>
-                        </div>
-                    </div>
+    <button class="folder-menu-btn bg-slate-700/50 hover:bg-slate-600/50 rounded-full p-1">
+        <i data-lucide="more-vertical" class="h-4 w-4 text-slate-400"></i>
+    </button>
+    <div class="folder-menu hidden absolute left-1/2 -translate-x-1/2 mt-2 w-48 bg-slate-800 rounded-lg shadow-lg z-10">
+        <button class="folder-settings-btn block w-full text-left px-4 py-1 text-xs text-white hover:bg-slate-700/50">Change Icon</button>
+        <button class="folder-delete-btn block w-full text-left px-4 py-1 text-xs text-white hover:bg-slate-700/50">Delete Folder</button>
+    </div>
+</div>
                 </div>
                 <div class="text-center mt-1">
                     <h4 class="text-xs font-medium text-white truncate">${
@@ -10382,6 +10413,7 @@ async function loadRecentFiles() {
       fileElement.addEventListener("click", () => {
         viewFile(file.id, file.name, file.url, file.type, file.size_mb);
       });
+      
 
       recentFilesContainer.appendChild(fileElement);
     });
@@ -10392,6 +10424,7 @@ async function loadRecentFiles() {
     showNotification("Failed to load recent files", "error");
   }
 }
+
 
 // Load activity feed from Supabase
 async function loadActivityFeed() {
@@ -10605,7 +10638,27 @@ async function markNotificationAsRead(notificationId) {
   }
 }
 
-// Search files across all folders
+let searchTimeout;
+
+// Gunakan debounce untuk menghindari banyak request selama mengetik
+function setupSearchInput() {
+  const searchInput = document.getElementById("searchInput");
+  if (!searchInput) return;
+
+  searchInput.addEventListener("input", () => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      const term = searchInput.value.trim();
+      if (term.length >= 1) {
+        searchFiles(term);
+      } else {
+        resetFileList(); // Reset jika kosong
+      }
+    }, 300); // Delay 300ms
+  });
+}
+
+// Search files with relevance sorting and highlighting
 async function searchFiles(searchTerm) {
   try {
     const userId = currentUser?.id;
@@ -10619,32 +10672,42 @@ async function searchFiles(searchTerm) {
 
     if (error) throw error;
 
-    const recentFilesContainer = document.getElementById(
-      "recentFilesContainer"
-    );
+    const recentFilesContainer = document.getElementById("recentFilesContainer");
     recentFilesContainer.innerHTML = "";
 
     if (files.length === 0) {
       recentFilesContainer.innerHTML =
-        '<div class="text-center text-slate-400">No files found</div>';
+        '<div class="text-center text-slate-400">No files found matching your search.</div>';
       return;
     }
 
-    files.forEach((file) => {
+    // Prioritaskan file yang **dimulai dengan** searchTerm
+    const sortedFiles = files.sort((a, b) => {
+      const aStartsWith = a.name.toLowerCase().startsWith(searchTerm.toLowerCase());
+      const bStartsWith = b.name.toLowerCase().startsWith(searchTerm.toLowerCase());
+      return bStartsWith - aStartsWith; // Yang match paling depan
+    });
+
+    sortedFiles.forEach((file) => {
       const fileElement = document.createElement("div");
       fileElement.className =
         "grid grid-cols-12 p-3 hover:bg-slate-800/50 transition-all cursor-pointer file-item";
       fileElement.dataset.id = file.id;
+      fileElement.id = `file-${file.id}`; // ID unik untuk scroll
 
       const icon = file.type === "image" ? "image" : "file-text";
       const color = file.type === "image" ? "green" : "blue";
 
+      // Highlight kata kunci dalam nama file
+      const highlightedName = file.name.replace(
+        new RegExp(`(${searchTerm})`, "gi"),
+        "<mark class='bg-yellow-600'>$1</mark>"
+      );
+
       fileElement.innerHTML = `
                 <div class="col-span-5 flex items-center">
                     <i data-lucide="${icon}" class="h-4 w-4 text-${color}-400 mr-2"></i>
-                    <span class="text-sm font-medium text-white">${
-                      file.name
-                    }</span>
+                    <span class="text-sm font-medium text-white">${highlightedName}</span>
                 </div>
                 <div class="col-span-2 text-sm text-slate-400 flex items-center">${
                   file.folders.name
@@ -10662,6 +10725,7 @@ async function searchFiles(searchTerm) {
 
       fileElement.addEventListener("click", () => {
         viewFile(file.id, file.name, file.url, file.type, file.size_mb);
+        scrollToElement(fileElement); // Scroll ke file
       });
 
       recentFilesContainer.appendChild(fileElement);
@@ -10672,6 +10736,24 @@ async function searchFiles(searchTerm) {
     console.error("Error searching files:", error);
     showNotification("Failed to search files", "error");
   }
+}
+
+// Scroll animasi ke elemen file saat diklik
+function scrollToElement(element) {
+  element.scrollIntoView({ behavior: "smooth", block: "center" });
+  element.classList.add("bg-orange-500/30"); // Efek highlight opsional
+  setTimeout(() => {
+    element.classList.remove("bg-orange-500/30");
+  }, 1500);
+}
+
+// Reset ke tampilan awal (misalkan menggunakan Recent Files atau all files)
+function resetFileList() {
+  const recentFilesContainer = document.getElementById("recentFilesContainer");
+  recentFilesContainer.innerHTML = ""; // Kosongkan dulu
+
+  // Misalnya panggil fungsi loadRecentFiles() atau render semua file
+  loadRecentFiles(); // Harus ada fungsi ini di kode Anda
 }
 
 // Initialize storage chart
@@ -10937,7 +11019,7 @@ async function initializeNetwork() {
     }
   } catch (err) {
     console.error('[INIT] Error inisialisasi Network:', err);
-    showToast('Error', 'Gagal memuat halaman Network', 'destructive');
+    showToast('Error', 'Failed to load the Network page', 'destructive');
   }
 }
 
@@ -10945,7 +11027,7 @@ async function initializeNetwork() {
 async function checkUser() {
   const { data: { session }, error } = await supabase.auth.getSession();
   if (error || !session?.user) {
-    showToast('Error', 'Silakan login terlebih dahulu', 'destructive');
+    showToast('Error', 'Please login first', 'destructive');
     throw new Error('User not authenticated');
   }
   window.currentUser = session.user;
@@ -10969,7 +11051,7 @@ function setupNetworkEventListeners() {
 
   if (!tabOverviewBtn || !tabMinersBtn || !tabPointsBtn) {
     console.error('[EVENT_LISTENER] Salah satu elemen tab Network tidak ditemukan');
-    showToast('Error', 'Beberapa elemen tidak ditemukan', 'destructive');
+    showToast('Error', 'Some elements not found', 'destructive');
     return;
   }
 
@@ -11165,7 +11247,7 @@ function initializeNetworkCharts() {
     console.log('[CHART] quantumSyncChart berhasil diinisialisasi');
   } catch (err) {
     console.error('[CHART] Error inisialisasi grafik:', err);
-    showToast('Error', 'Gagal menginisialisasi grafik', 'destructive');
+    showToast('Error', 'Failed to initialize the chart', 'destructive');
   }
 }
 
@@ -11178,7 +11260,7 @@ async function initializePresence() {
       .eq('id', window.currentUser.id)
       .single();
     if (profileError) {
-      console.error('[PRESENCE] Gagal mengambil profil pengguna:', profileError);
+      console.error('[PRESENCE] Failed to retrieve user profile:', profileError);
       return;
     }
 
@@ -11207,10 +11289,10 @@ async function initializePresence() {
             full_name: profile.full_name || 'Unknown',
             isMining: false,
           }).catch(err => {
-            console.error('[PRESENCE] Gagal track pengguna di presence:', err);
+            console.error('[PRESENCE] Failed to track users in presence:', err);
           });
         } else if (status === 'CLOSED' || status === 'TIMED_OUT') {
-          console.warn('[PRESENCE] Subscription presence gagal, mencoba ulang...');
+          console.warn('[PRESENCE] Subscription presence failed, retry...');
           setTimeout(() => presenceChannel.subscribe(), 2000);
         }
       });
@@ -11924,7 +12006,7 @@ async function updateNetworkDashboard() {
     }
   } catch (error) {
     console.error('[DASHBOARD] Error updating network dashboard:', error);
-    showToast('Error', 'Gagal memperbarui data dashboard', 'destructive');
+    showToast('Error', 'Failed to update dashboard data', 'destructive');
   }
 }
 
@@ -12052,11 +12134,87 @@ document.addEventListener('DOMContentLoaded', function () {
 
 //purchase booster
 
+
+// Flag untuk mencegah toast duplikat
+let isToastActive = false;
+
+// Fungsi untuk menampilkan modal konfirmasi pembayaran
+function showConfirmationModal(walletType, boosterName, price, onConfirm) {
+  const overlay = document.createElement("div");
+  overlay.className = "fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm z-50 flex items-center justify-center p-4";
+
+  const modal = document.createElement("div");
+  modal.className = "bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl shadow-2xl border border-slate-700/50 w-full max-w-md overflow-hidden";
+  modal.innerHTML = `
+    <div class="p-6">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-xl font-bold text-slate-100 flex items-center gap-2">
+          <i data-lucide="credit-card" class="w-5 h-5 text-cyan-400"></i>
+          Confirm Payment
+        </h3>
+        <button class="close-btn text-slate-400 hover:text-slate-200">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="mb-6">
+        <div class="bg-slate-700/30 rounded-lg p-4 mb-3">
+          <div class="text-xs text-slate-400 mb-1">Purchasing</div>
+          <div class="font-medium text-slate-100">${boosterName} Booster</div>
+        </div>
+        <div class="bg-slate-700/30 rounded-lg p-4 mb-3">
+          <div class="text-xs text-slate-400 mb-1">Payment Method</div>
+          <div class="font-medium text-slate-100">${walletType.charAt(0).toUpperCase() + walletType.slice(1)}</div>
+        </div>
+        <div class="bg-slate-700/30 rounded-lg p-4">
+          <div class="text-xs text-slate-400 mb-1">Amount</div>
+          <div class="font-medium text-slate-100">${price} ETH</div>
+        </div>
+      </div>
+      <div class="flex justify-end gap-3">
+        <button class="cancel-btn px-4 py-2 bg-slate-600 text-slate-200 rounded-lg hover:bg-slate-500 transition-colors">
+          Cancel
+        </button>
+        <button class="confirm-btn px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-500 transition-colors">
+          Confirm
+        </button>
+      </div>
+    </div>
+  `;
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  document.body.style.overflow = "hidden";
+
+  if (window.lucide) {
+    window.lucide.createIcons();
+  }
+
+  const closeModal = () => {
+    document.body.removeChild(overlay);
+    document.body.style.overflow = "";
+  };
+
+  modal.querySelector(".close-btn").addEventListener("click", closeModal);
+  modal.querySelector(".cancel-btn").addEventListener("click", closeModal);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeModal();
+  });
+
+  modal.querySelector(".confirm-btn").addEventListener("click", () => {
+    onConfirm();
+    closeModal();
+  });
+}
+
+// Fungsi untuk menangani pembelian booster
 async function handlePurchase(walletType, booster, price) {
+  if (isToastActive) return; // Mencegah toast duplikat
+
   try {
     let provider, walletAddress;
     const toAddress = "0x597c2c69f5a3538e9809f563274a8f5168bc9907";
 
+    // Langkah 1: Hubungkan wallet
     switch (walletType) {
       case "metamask":
         provider = window.ethereum;
@@ -12072,12 +12230,10 @@ async function handlePurchase(walletType, booster, price) {
           }],
         });
         break;
+
       case "phantom":
-        provider = window.solana;
-        if (!provider || !provider.isPhantom) throw new Error("Phantom is not installed");
-        const { publicKey } = await provider.connect();
-        walletAddress = publicKey.toString();
-        throw new Error("Phantom purchases require a cross-chain bridge");
+        throw new Error("Phantom wallet is not supported yet. Please use MetaMask or OKX Wallet.");
+
       case "okx":
         provider = window.okxwallet;
         if (!provider) throw new Error("OKX Wallet is not installed");
@@ -12092,17 +12248,23 @@ async function handlePurchase(walletType, booster, price) {
           }],
         });
         break;
+
+      default:
+        throw new Error("Unsupported wallet type");
     }
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("User not logged in");
+    // Langkah 2: Dapatkan data pengguna dari Supabase
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) throw new Error("User not logged in");
 
+    // Langkah 3: Hitung masa berlaku dan multiplier booster
     const validityDays = { elite: 30, epic: 45, pro: 60, diamond: 90 };
     const speedMultiplier = { elite: 3, epic: 5, pro: 10, diamond: 15 };
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + validityDays[booster]);
 
-    await supabase.from("boosters").insert({
+    // Langkah 4: Simpan data pembelian ke tabel boosters
+    const { error: insertError } = await supabase.from("boosters").insert({
       user_id: user.id,
       booster_type: booster,
       speed_multiplier: speedMultiplier[booster],
@@ -12111,24 +12273,65 @@ async function handlePurchase(walletType, booster, price) {
       expires_at: expiresAt.toISOString(),
     });
 
+    if (insertError) {
+      console.error("Failed to insert booster into boosters table:", insertError);
+      throw new Error("Failed to record booster purchase");
+    }
+
+    // Langkah 5: Perbarui kolom booster di tabel profiles
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({ booster: booster })
+      .eq("id", user.id);
+
+    if (updateError) {
+      console.error("Failed to update booster in profiles table:", updateError);
+      throw new Error("Failed to update booster status");
+    }
+
+    // Langkah 6: Verifikasi bahwa booster telah diperbarui
+    const { data: profileData, error: fetchError } = await supabase
+      .from("profiles")
+      .select("booster")
+      .eq("id", user.id)
+      .single();
+
+    if (fetchError || profileData.booster !== booster) {
+      console.error("Booster verification failed:", fetchError || "Booster value mismatch");
+      throw new Error("Failed to verify booster update");
+    }
+
+    console.log(`Booster updated successfully: ${profileData.booster}`);
+    isToastActive = true;
     showToast("Success", `${booster.charAt(0).toUpperCase() + booster.slice(1)} Booster activated!`);
+    setTimeout(() => { isToastActive = false; }, 3000); // Reset flag setelah 3 detik
+    // Perbarui UI (opsional, jika elemen booster ada di dashboard)
+    const boosterElement = document.querySelector(".booster-value");
+    if (boosterElement) {
+      boosterElement.textContent = booster.charAt(0).toUpperCase() + booster.slice(1);
+    }
   } catch (error) {
     console.error("Purchase error:", error);
-    showToast("Error", error.message || "Purchase failed", "destructive");
+    if (!isToastActive) {
+      isToastActive = true;
+      showToast("Error", error.message === "User denied transaction" ? "Transaction cancelled by user" : error.message || "Purchase failed", "destructive");
+      setTimeout(() => { isToastActive = false; }, 3000); // Reset flag setelah 3 detik
+    }
   }
 }
 
+// Event listener untuk tombol pembelian booster
 document.querySelectorAll(".purchase-btn").forEach(btn => {
-  btn.addEventListener("click", async () => {
+  btn.addEventListener("click", async (e) => {
+    e.preventDefault(); // Mencegah aksi default jika ada
     const booster = btn.dataset.booster;
     const price = btn.dataset.price;
     const boosterName = booster.charAt(0).toUpperCase() + booster.slice(1);
 
-    // Create modal overlay
+    // Modal untuk memilih metode pembayaran
     const overlay = document.createElement("div");
     overlay.className = "fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm z-50 flex items-center justify-center p-4";
-    
-    // Create modal container
+
     const modal = document.createElement("div");
     modal.className = "bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl shadow-2xl border border-slate-700/50 w-full max-w-md overflow-hidden";
     modal.innerHTML = `
@@ -12184,12 +12387,10 @@ document.querySelectorAll(".purchase-btn").forEach(btn => {
     document.body.appendChild(overlay);
     document.body.style.overflow = "hidden";
     
-    // Initialize icons
     if (window.lucide) {
       window.lucide.createIcons();
     }
     
-    // Close modal handlers
     const closeModal = () => {
       document.body.removeChild(overlay);
       document.body.style.overflow = "";
@@ -12200,33 +12401,58 @@ document.querySelectorAll(".purchase-btn").forEach(btn => {
       if (e.target === overlay) closeModal();
     });
     
-    // Wallet selection handler
     const walletBtns = overlay.querySelectorAll(".wallet-btn");
     walletBtns.forEach(btn => {
-      btn.addEventListener("click", async () => {
+      btn.addEventListener("click", async (e) => {
+        e.preventDefault(); // Mencegah aksi default
         const walletType = btn.dataset.wallet;
-        modal.innerHTML = `
-          <div class="p-6 flex flex-col items-center justify-center h-64">
-            <div class="animate-spin mb-4">
-              <i data-lucide="loader" class="w-8 h-8 text-cyan-400"></i>
+
+        if (walletType === "phantom") {
+          modal.innerHTML = `
+            <div class="p-6 flex flex-col items-center justify-center h-64">
+              <i data-lucide="alert-triangle" class="w-8 h-8 text-red-400 mb-4"></i>
+              <h3 class="text-lg font-medium text-slate-100 mb-2">Phantom Not Supported</h3>
+              <p class="text-sm text-slate-400 text-center">Phantom wallet is not supported yet. Please use MetaMask or OKX Wallet.</p>
+              <button class="close-btn mt-6 px-4 py-2 bg-slate-600 text-slate-200 rounded-lg hover:bg-slate-500 transition-colors">
+                Close
+              </button>
             </div>
-            <h3 class="text-lg font-medium text-slate-100 mb-2">Connecting to ${btn.querySelector("span").textContent}</h3>
-            <p class="text-sm text-slate-400 text-center">Please check your wallet to confirm the connection</p>
-          </div>
-        `;
-        
-        if (window.lucide) {
-          window.lucide.createIcons();
+          `;
+          if (window.lucide) {
+            window.lucide.createIcons();
+          }
+          modal.querySelector(".close-btn").addEventListener("click", closeModal);
+          return;
         }
-        
-        try {
-          await handlePurchase(walletType, booster, price);
-          closeModal();
-        } catch (error) {
-          console.error("Wallet connection error:", error);
-          closeModal();
-          showToast("Error", error.message || "Wallet connection failed", "destructive");
-        }
+
+        showConfirmationModal(walletType, boosterName, price, async () => {
+          modal.innerHTML = `
+            <div class="p-6 flex flex-col items-center justify-center h-64">
+              <div class="animate-spin mb-4">
+                <i data-lucide="loader" class="w-8 h-8 text-cyan-400"></i>
+              </div>
+              <h3 class="text-lg font-medium text-slate-100 mb-2">Connecting to ${btn.querySelector("span").textContent}</h3>
+              <p class="text-sm text-slate-400 text-center">Please check your wallet to confirm the transaction</p>
+            </div>
+          `;
+          
+          if (window.lucide) {
+            window.lucide.createIcons();
+          }
+          
+          try {
+            await handlePurchase(walletType, booster, price);
+            closeModal();
+          } catch (error) {
+            console.error("Wallet connection error:", error);
+            closeModal();
+            if (!isToastActive) {
+              isToastActive = true;
+              showToast("Error", error.message === "User denied transaction" ? "Transaction cancelled by user" : error.message || "Wallet connection failed", "destructive");
+              setTimeout(() => { isToastActive = false; }, 3000);
+            }
+          }
+        });
       });
     });
   });
@@ -12691,8 +12917,8 @@ let onlineUsers = [];
 let latencyInterval;
 let lastChatTime = {};
 let lastMediaTime = {};
-const CHAT_COOLDOWN = 1 * 1000; // 1 detik
-const MEDIA_COOLDOWN = 1 * 1000; // 1 detik
+const CHAT_COOLDOWN = 60 * 1000; // 1 detik
+const MEDIA_COOLDOWN = 60 * 30 * 1000; // 1 detik
 
 //tize HTML untuk mencegah XSS
 function sanitizeHTML(str) {
@@ -12787,7 +13013,7 @@ async function appendAdminMessage(msg) {
             </div>
             <div class="pt-2 flex items-center gap-3 text-xs text-cyan-300/70">
                 <div class="flex items-center"><i data-lucide="info" class="h-3 w-3 mr-1.5"></i><span>Admin Team</span></div>
-                <div class="flex items-center"><i data-lucide="mail" class="h-3 w-3 mr-1.5"></i><span>aqula@app.com</span></div>
+                <div class="flex items-center"><i data-lucide="mail" class="h-3 w-3 mr-1.5"></i><span>aqula@gmail.com</span></div>
             </div>
         </div>
     </div>`;
@@ -13068,7 +13294,7 @@ async function appendMessage(msg, updateOnly = false) {
         if (reportBtn) {
             const reportHandler = () => {
                 if (!window.currentUser?.id) {
-                    showToast("Error", "Silakan login untuk melaporkan pesan", "destructive");
+                    showToast("Error", "Please login to report messages", "destructive");
                     return;
                 }
                 const popup = document.createElement("div");
@@ -13225,13 +13451,13 @@ async function sendMessage(content, image_url = null, audio_url = null, tempId =
     try {
         if (!chatInput || !sendMessageBtn) {
             console.error("Elemen chatInput atau sendMessageBtn tidak ditemukan");
-            showToast("Error", "Elemen input tidak ditemukan", "destructive");
+            showToast("Error", "Input element not found", "destructive");
             return;
         }
 
         const userId = window.currentUser?.id;
         if (!userId) {
-            showToast("Error", "Anda belum login.", "destructive");
+            showToast("Error", "You are not logged in yet.", "destructive");
             return;
         }
 
@@ -13239,14 +13465,14 @@ async function sendMessage(content, image_url = null, audio_url = null, tempId =
 
         if (content && lastChatTime[userId] && (now - lastChatTime[userId] < CHAT_COOLDOWN)) {
             const remaining = Math.ceil((CHAT_COOLDOWN - (now - lastChatTime[userId])) / 1000);
-            showToast("Peringatan", `Tunggu ${remaining} detik lagi untuk chat!`, "destructive");
+            showToast("Warning", `Wait ${remaining} seconds left to chat!`, "destructive");
             startChatTimer(remaining);
             return;
         }
 
         if ((image_url || audio_url) && lastMediaTime[userId] && (now - lastMediaTime[userId] < MEDIA_COOLDOWN)) {
             const remaining = Math.ceil((MEDIA_COOLDOWN - (now - lastMediaTime[userId])) / 1000 / 60);
-            showToast("Peringatan", `Tunggu ${remaining} menit lagi untuk mengirim media!`, "destructive");
+            showToast("Warning", `Wait ${remaining} more minutes to send media!`, "destructive");
             return;
         }
 
@@ -13342,7 +13568,7 @@ async function sendMessage(content, image_url = null, audio_url = null, tempId =
                 if (notifyError) {
                     console.error(`Gagal mengirim notifikasi untuk ${username}:`, notifyError);
                 } else {
-                    showToast("Info", `Pengguna @${username} telah ditag`, "default");
+                    showToast("Info", `User @${username} has been tagged`, "default");
                 }
             }
         }
@@ -13352,11 +13578,11 @@ async function sendMessage(content, image_url = null, audio_url = null, tempId =
             suggestionList.classList.add("hidden");
         }
 
-        showToast("Sukses", "Pesan terkirim", "default");
+        showToast("Success”, ”Message sent", "default");
 
     } catch (err) {
-        console.error("Gagal mengirim pesan:", err);
-        showToast("Error", "Gagal mengirim pesan: " + err.message, "destructive");
+        console.error("Failed to send message:", err);
+        showToast("Error", "Failed to send message: " + err.message, "destructive");
     } finally {
         chatInput.disabled = false;
         sendMessageBtn.disabled = false;
@@ -13615,14 +13841,14 @@ function bindEventListeners() {
 
             const userId = window.currentUser?.id;
             if (!userId) {
-                showToast("Error", "Anda belum login.", "destructive");
+                showToast("Error", "You are not logged in yet.", "destructive");
                 return;
             }
 
             const now = Date.now();
             if (lastMediaTime[userId] && (now - lastMediaTime[userId] < MEDIA_COOLDOWN)) {
                 const remaining = Math.ceil((MEDIA_COOLDOWN - (now - lastMediaTime[userId])) / 1000 / 60);
-                showToast("Peringatan", `Tunggu ${remaining} menit lagi untuk mengirim gambar!`, "destructive");
+                showToast("Warning", `wait ${remaining} another minute to send a picture!`, "destructive");
                 return;
             }
 
@@ -13673,8 +13899,8 @@ function bindEventListeners() {
                 await sendMessage("🖼️", resizedUrl, null, tempId);
 
             } catch (error) {
-                console.error("Gagal mengunggah gambar:", error);
-                showToast("Error", "Gagal mengunggah gambar: " + error.message, "destructive");
+                console.error("Failed to upload image:", error);
+                showToast("Error", "Failed to upload image: " + error.message, "destructive");
             } finally {
                 event.target.value = "";
                 window.isSendingMedia = false;
@@ -13744,19 +13970,19 @@ function bindEventListeners() {
     const handleVoiceRecord = async () => {
         const userId = window.currentUser?.id;
         if (!userId) {
-            showToast("Error", "Anda belum login.", "destructive");
+            showToast("Error", "You are not logged in yet.", "destructive");
             return;
         }
 
         const now = Date.now();
         if (lastMediaTime[userId] && (now - lastMediaTime[userId] < MEDIA_COOLDOWN)) {
             const remaining = Math.ceil((MEDIA_COOLDOWN - (now - lastMediaTime[userId])) / 1000 / 60);
-            showToast("Peringatan", `Tunggu ${remaining} menit lagi untuk mengirim suara!`, "destructive");
+            showToast("Warning", `Wait ${remaining} another minute to send the voice!`, "destructive");
             return;
         }
 
         if (window.isSendingMedia) {
-            showToast("Peringatan", "Sedang mengunggah media, harap tunggu.", "destructive");
+            showToast("Warning", "Currently uploading media, please wait.", "destructive");
             return;
         }
 
@@ -13846,11 +14072,11 @@ function bindEventListeners() {
                         await sendMessage("🔊", null, data.publicUrl, tempId, duration);
 
                         modal.classList.add("hidden");
-                        showToast("Sukses", "Voice note terkirim", "default");
+                        showToast("Success", "Voice note sent", "default");
 
                     } catch (error) {
-                        console.error("Gagal mengunggah voice note:", error);
-                        showToast("Error", "Gagal mengunggah suara: " + error.message, "destructive");
+                        console.error("Failed to upload voice note:", error);
+                        showToast("Error", "Failed to upload voice note: " + error.message, "destructive");
                     } finally {
                         window.isSendingMedia = false;
                         sendBtn.disabled = false;
@@ -13897,8 +14123,8 @@ function bindEventListeners() {
             stopBtn.addEventListener("click", stopHandler);
             eventListeners.push({ element: stopBtn, event: "click", handler: stopHandler });
         } catch (err) {
-            console.error("Gagal merekam suara:", err);
-            showToast("Error", "Gagal merekam suara: " + err.message, "destructive");
+            console.error("Failed to record sound:", err);
+            showToast("Error", "Failed to record sound: " + err.message, "destructive");
             window.isSendingMedia = false;
         }
     };
@@ -13932,13 +14158,13 @@ function bindEventListeners() {
     }
 
     if (voiceCallBtn) {
-        const voiceCallHandler = () => showToast("Info", "Fitur panggilan suara belum tersedia", "default");
+        const voiceCallHandler = () => showToast("Info", "Voice call feature not yet available", "default");
         voiceCallBtn.addEventListener("click", voiceCallHandler);
         eventListeners.push({ element: voiceCallBtn, event: "click", handler: voiceCallHandler });
     }
 
     if (videoCallBtn) {
-        const videoCallHandler = () => showToast("Info", "Fitur panggilan video belum tersedia", "default");
+        const videoCallHandler = () => showToast("Info", "Video calling feature not yet available", "default");
         videoCallBtn.addEventListener("click", videoCallHandler);
         eventListeners.push({ element: videoCallBtn, event: "click", handler: videoCallHandler });
     }
@@ -13981,8 +14207,8 @@ async function initializeChat() {
     }
 
     if (!isValidUuid(window.currentUser.id)) {
-        console.error(`ID pengguna tidak valid: ${window.currentUser.id}`);
-        showToast("Error", "ID pengguna tidak valid", "destructive");
+        console.error(`Invalid user ID: ${window.currentUser.id}`);
+        showToast("Error", "Invalid user ID", "destructive");
         disableChat();
         return;
     }
@@ -13998,7 +14224,7 @@ async function initializeChat() {
 
         if (!chatInput || !sendMessageBtn || !chatMessages || !adminMessages) {
             console.error("Elemen DOM tidak ditemukan");
-            showToast("Error", "Elemen DOM tidak ditemukan", "destructive");
+            showToast("Error", "DOM element not found", "destructive");
             return;
         }
 
@@ -14097,7 +14323,7 @@ async function initializeChat() {
                     await appendMessage(msg);
 
                     if (Array.isArray(msg.mentions) && msg.mentions.includes(window.currentUser?.id)) {
-                        showToast("Info", `${msg.full_name} menyebut Anda!`, "default");
+                        showToast("Info", `${msg.full_name} call you!`, "default");
                     }
                 }
             )
@@ -14192,7 +14418,7 @@ async function initializeChat() {
 
     } catch (err) {
         console.error("Inisialisasi chat gagal:", err);
-        showToast("Error", "Gagal inisialisasi chat: " + err.message, "destructive");
+        showToast("Error", "Failed chat initialization: " + err.message, "destructive");
         disableChat();
         isChatInitialized = false;
     }
@@ -14206,7 +14432,7 @@ function disableChat() {
 
     if (chatInput) {
         chatInput.disabled = true;
-        chatInput.placeholder = "Login untuk chat...";
+        chatInput.placeholder = "Login to chat...";
     }
 
     if (sendMessageBtn) {
@@ -14246,7 +14472,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeout(() => {
         initializeChat().catch(err => {
             console.error("Gagal inisialisasi chat di DOMContentLoaded:", err);
-            showToast("Error", "Gagal memuat chat, silakan coba lagi", "destructive");
+            showToast("Error", "Failed to load chat, please try again", "destructive");
         });
     }, 100);
 });
@@ -14349,7 +14575,7 @@ function setupEventListeners() {
       !saveProfileBtn || !changePasswordBtn || !deleteAccountBtn || !cancelDeleteBtn ||
       !confirmDeleteBtn || !copyReferralBtn || !connectWalletBtn) {
     console.error("Salah satu elemen halaman settings tidak ditemukan");
-    showToast("Error", "Beberapa elemen tidak ditemukan", "destructive");
+    showToast("Error", "Some elements not found", "destructive");
     return;
   }
 
@@ -14397,10 +14623,10 @@ function setupEventListeners() {
       return;
     }
     navigator.clipboard.writeText(referralCodeInput.value)
-      .then(() => showToast("Sukses", "Kode referral disalin!"))
+      .then(() => showToast("Success", "Referral code copied!"))
       .catch(err => {
-        console.error("Gagal menyalin kode referral:", err);
-        showToast("Error", "Gagal menyalin kode referral", "destructive");
+        console.error("Failed to copy referral code:", err);
+        showToast("Error", "Failed to copy referral code", "destructive");
       });
   });
 
@@ -14433,15 +14659,15 @@ async function deleteAccount() {
     const modal = document.getElementById("deleteAccountModal");
     if (modal) modal.style.display = "none";
 
-    showToast("Sukses", "Akun berhasil dihapus. Anda akan keluar.");
+    showToast("Success", "Account successfully deleted. You will be logged out.");
 
     // Tunda logout untuk memastikan notifikasi terlihat
     setTimeout(() => {
       window.location.href = "/login"; // Arahkan ke halaman login
     }, 2000);
   } catch (err) {
-    console.error("Error menghapus akun:", err);
-    showToast("Error", "Gagal menghapus akun: " + err.message, "destructive");
+    console.error("Error deleting an account:", err);
+    showToast("Error", "Failed to delete account: " + err.message, "destructive");
   } finally {
     hideLoading();
   }
@@ -14454,11 +14680,11 @@ async function handleProfilePictureUpload(e) {
 
   const allowedTypes = ["image/png", "image/jpeg"];
   if (file.size > 15 * 1024 * 1024) {
-    showToast("Error", "Ukuran file maksimal 15MB", "destructive");
+    showToast("Error", "Maximum file size 15MB", "destructive");
     return;
   }
   if (!allowedTypes.includes(file.type)) {
-    showToast("Error", "Format file harus PNG atau JPEG", "destructive");
+    showToast("Error", "File format must be PNG or JPEG", "destructive");
     return;
   }
 
@@ -14495,10 +14721,10 @@ async function removeProfilePicture() {
     if (error) throw error;
 
     await loadSettings(); // Refresh UI
-    showToast("Sukses", "Foto profil berhasil dihapus");
+    showToast("Success", "Profile photo successfully deleted");
   } catch (err) {
-    console.error("Error hapus foto profil:", err);
-    showToast("Error", "Gagal menghapus foto profil", "destructive");
+    console.error("Error delete profile picture:", err);
+    showToast("Error", "Failed to delete profile picture", "destructive");
   } finally {
     hideLoading();
   }
@@ -14512,14 +14738,14 @@ async function saveProfile() {
     const walletAddressInput = document.getElementById("walletAddressInput");
 
     if (!fullNameInput || !walletAddressInput) {
-      throw new Error("Input tidak ditemukan");
+      throw new Error("Input not found");
     }
 
     const fullName = fullNameInput.value.trim();
     const walletAddress = walletAddressInput.value.trim();
 
     if (!fullName) {
-      toggleError(fullNameInput, true, "Nama lengkap wajib diisi.");
+      toggleError(fullNameInput, true, "Full name required.");
       return;
     }
 
@@ -14529,11 +14755,11 @@ async function saveProfile() {
       .eq("id", user.id);
     if (error) throw error;
 
-    showToast("Sukses", "Profil berhasil disimpan");
+    showToast("Success", "Profile saved successfully");
     await loadSettings(); // Refresh UI
   } catch (err) {
-    console.error("Error simpan profil:", err);
-    showToast("Error", "Gagal menyimpan profil", "destructive");
+    console.error("Save profile error:", err);
+    showToast("Error", "Failed to save profile", "destructive");
   } finally {
     hideLoading();
   }
@@ -14548,7 +14774,7 @@ async function changePassword() {
     const confirmInput = document.getElementById("confirmNewPasswordInput");
 
     if (!currentInput || !newInput || !confirmInput) {
-      throw new Error("Input kata sandi tidak ditemukan");
+      throw new Error("Password input not found");
     }
 
     const currentPass = currentInput.value;
@@ -14556,17 +14782,17 @@ async function changePassword() {
     const confirmPass = confirmInput.value;
 
     if (!currentPass || !newPass || !confirmPass) {
-      showToast("Error", "Semua kolom harus diisi", "destructive");
+      showToast("Error", "All fields must be filled in", "destructive");
       return;
     }
 
     if (newPass !== confirmPass) {
-      showToast("Error", "Konfirmasi kata sandi tidak cocok", "destructive");
+      showToast("Error", "Confirmation password does not match", "destructive");
       return;
     }
 
     if (newPass.length < 6) {
-      showToast("Error", "Kata sandi minimal 6 karakter", "destructive");
+      showToast("Error", "Password at least 6 characters", "destructive");
       return;
     }
 
@@ -14626,7 +14852,7 @@ async function connectWallet() {
       if (userWallet) {
         userWallet.textContent = walletAddress;
       }
-      showToast("Sukses", "Wallet successfully connected");
+      showToast("Success", "Wallet successfully connected");
     } else {
       showToast("Info", "You are not logged in yet. Login to save wallet address.");
     }
@@ -14931,30 +15157,56 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
-// Cegah zoom pakai ctrl/cmd + mouse wheel
+// Cegah zoom pakai Ctrl/Cmd + Scroll Mouse
 window.addEventListener('wheel', function (e) {
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
     }
   }, { passive: false });
 
-  // Cegah zoom pakai ctrl/cmd + '+' atau '-'
+  // Cegah zoom pakai Ctrl/Cmd + '+' / '-' / '=' atau reset zoom dengan '0'
   window.addEventListener('keydown', function (e) {
-    // Key: '+' or '-' or '=' (di beberapa keyboard '=' digunakan untuk zoom in)
-    if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '=')) {
+    const key = e.key;
+    const ctrlOrCmd = e.ctrlKey || e.metaKey;
+
+    if (ctrlOrCmd && (key === '+' || key === '-' || key === '=')) {
       e.preventDefault();
     }
 
-    // Cegah zoom pakai Ctrl + 0 (reset zoom)
-    if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+    if (ctrlOrCmd && key === '0') {
       e.preventDefault();
     }
   });
 
-  // Cegah zoom gesture (iOS Safari)
+  // Cegah gesture zoom di iOS Safari
   document.addEventListener('gesturestart', function (e) {
     e.preventDefault();
-  });
+  }, { passive: false });
+
+  // Cegah pinch-to-zoom (2 jari)
+  document.addEventListener('touchstart', function (e) {
+    if (e.touches.length > 1) {
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  // Cegah double-tap zoom
+  let lastTouchEnd = 0;
+  document.addEventListener("touchend", function (e) {
+    const now = new Date().getTime();
+    if (now - lastTouchEnd <= 300) {
+      e.preventDefault();
+    }
+    lastTouchEnd = now;
+  }, { passive: false });
+
+  // Reset zoom saat halaman dimuat (untuk beberapa perangkat tertentu)
+  window.onload = () => {
+    document.body.style.zoom = "reset";
+    document.documentElement.style.touchAction = 'manipulation';
+  };
+
+
 
 
 
@@ -15175,27 +15427,6 @@ window.addEventListener('wheel', function (e) {
     window.addEventListener('resize', onWindowResize);
     animate();
   });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
