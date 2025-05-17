@@ -13916,8 +13916,8 @@ You are asking for user language.
       let latencyInterval;
       let lastChatTime = {};
       let lastMediaTime = {};
-      const CHAT_COOLDOWN = 1 * 1000; // 1 detik
-      const MEDIA_COOLDOWN = 1 * 1000; // 1 detik
+      const CHAT_COOLDOWN = 60 * 1000; // 1 detik
+      const MEDIA_COOLDOWN = 60 * 30 * 1000; // 1 detik
 
       //tize HTML untuk mencegah XSS
       function sanitizeHTML(str) {
