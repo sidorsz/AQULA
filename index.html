@@ -179,7 +179,7 @@
       left: 0;
       overflow-y: auto;
       padding: 1rem;
-      background: rgba(15, 23, 42, 0.8);
+      background: none;
       border-right: 1px solid rgba(51, 65, 85, 0.5);
       scrollbar-width: none;
     }
@@ -612,6 +612,9 @@
       }
     }
   </style>
+
+
+
 </head>
 
 <body class="dark relative">
@@ -1289,6 +1292,85 @@
                         transform: translateY(20px);
                       }
                     }
+
+
+                    @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .task-btn {
+    position: relative;
+    overflow: hidden;
+  }
+  .task-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    transition: width 0.6s ease, height 0.6s ease;
+  }
+  .task-btn:hover::before {
+    width: 300px;
+    height: 300px;
+  }
+  .done-btn.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .claim-btn.hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+  @keyframes slideIn {
+    from {
+      transform: translateY(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+  @keyframes slideOut {
+    from {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    to {
+      transform: translateY(100%);
+      opacity: 0;
+    }
+  }
+  #dayTaskModal {
+    animation: slideIn 0.3s ease-out;
+  }
+  #dayTaskModal.hide {
+    animation: slideOut 0.3s ease-in forwards;
+  }
+  @media (max-width: 1024px) {
+    .grid {
+      grid-template-columns: 1fr;
+    }
+    #pageDashboard .col-span-2,
+    #pageDashboard .col-span-1 {
+      grid-column: span 1;
+    }
+    #dayTaskModal .max-w-2xl {
+      max-width: 90%;
+    }
+  }
                   </style>
 
                   <div class="flex items-center">
@@ -1447,20 +1529,263 @@
                     0x
                   </div>
                 </div>
-                <!-- Mining Button -->
-                <button id="toggleMiningBtn"
-                  class="w-full bg-gradient-to-r from-cyan-600/90 to-cyan-700 hover:from-cyan-500/90 hover:to-cyan-600/90 text-white rounded-lg py-3 px-4 font-medium transition-all hover:shadow-lg hover:shadow-cyan-500/30 flex items-center justify-center group">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 group-hover:animate-pulse" fill="none"
-                    viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                      d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  Start Mining
-                  <span class="ml-2 text-xs opacity-70 group-hover:opacity-100"></span>
+               <!-- Day Task -->
+              <div
+               <div class="flex items-center justify-between py-3 px-4 bg-slate-800/30 rounded-lg border border-slate-700/50 hover:border-cyan-500/30 transition-all">
+  <div class="flex items-center">
+    <!-- Icon Day Task -->
+    <svg fill="#64748b" viewBox="0 0 32 32" class="h-5 w-5 text-slate-400 mr-3" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="14 20.18 10.41 16.59 9 18 14 23 23 14 21.59 12.58 14 20.18" />
+      <path d="M25,5H22V4a2,2,0,0,0-2-2H12a2,2,0,0,0-2,2V5H7A2,2,0,0,0,5,7V28a2,2,0,0,0,2,2H25a2,2,0,0,0,2-2V7A2,2,0,0,0,25,5ZM12,4h8V8H12ZM25,28H7V7h3v3H22V7h3Z" />
+    </svg>
+
+    <span class="text-sm font-medium text-slate-300">Task</span>
+  </div>
+                <button id="toggleDayTaskModal"
+                  class="text-sm font-medium text-cyan-400 bg-gradient-to-r from-cyan-900/30 to-cyan-800/20 px-3 py-1 rounded-full border border-cyan-700/50 hover:bg-cyan-700/50 transition-all">
+                  Open
+                </button>
+              </div>
+              <!-- Mining Button -->
+              <button id="toggleMiningBtn"
+                class="w-full bg-gradient-to-r from-cyan-600/90 to-cyan-700 hover:from-cyan-500/90 hover:to-cyan-600/90 text-white rounded-lg py-3 px-4 font-medium transition-all hover:shadow-lg hover:shadow-cyan-500/30 flex items-center justify-center group">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 group-hover:animate-pulse" fill="none"
+                  viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                Start Mining
+                <span class="ml-2 text-xs opacity-70 group-hover:opacity-100"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      
+      
+ 
+
+<div id="dayTaskModal" class="fixed inset-0 flex items-center justify-center z-50 hidden transition-opacity">
+  <!-- Background Blur Full Screen -->
+  <div class="fixed inset-0 backdrop-blur-sm bg-black/40"></div>
+
+  <!-- Modal Container -->
+  <div class="bg-gradient-to-br from-slate-800/90 to-slate-900/90 rounded-xl p-6 w-full max-w-6xl h-[500px] border border-slate-700/60 shadow-2xl shadow-cyan-500/10 overflow-y-auto z-10">
+    <!-- Header Modal -->
+    <div class="flex items-center justify-between mb-5 border-b border-slate-700/60 pb-4">
+      <div class="flex items-center space-x-3">
+        <div class="p-2 rounded-lg bg-teal-500/10 border border-teal-500/20">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <div>
+          <h2 class="text-xl font-semibold text-slate-100">Daily Tasks</h2>
+          <p class="text-xs text-slate-400/80 font-light">Complete tasks to earn exclusive rewards</p>
+        </div>
+      </div>
+      <button id="closeDayTaskModal" class="text-slate-400 hover:text-slate-200 transition-colors p-1 rounded-full hover:bg-slate-700/50">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+      <!-- Task: Buy Booster -->
+      <div class="relative bg-slate-800/70 rounded-xl p-5 border border-slate-700/50 hover:border-cyan-500/30 transition-colors">
+        <div class="flex items-start space-x-4">
+          <div class="p-2.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 mt-0.5">
+            <i data-lucide="zap" class="h-5 w-5 text-cyan-400"></i>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-base font-medium text-slate-100 mb-1.5">Buy Booster</h3>
+            <p class="text-xs text-slate-400/80 leading-relaxed mb-3">Purchase a booster to increase mining speed.</p>
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-1.5">
+                <svg class="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="currentColor"/>
+                </svg>
+                <span class="text-xs font-medium text-amber-400">10,000 XP</span>
+              </div>
+              <div class="flex space-x-2">
+                <button class="task-btn claim-btn bg-cyan-600/90 hover:bg-cyan-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all disabled:opacity-50 disabled:cursor-not-allowed" data-task="buy-booster" disabled>
+                  <i data-lucide="rocket" class="h-3.5 w-3.5"></i>
+                  <span>Claim</span>
+                </button>
+                <button class="visit-btn text-white rounded-lg p-1.5 flex items-center transition-all" onclick="window.location.href='#pageBooster'">
+                  <i data-lucide="external-link" class="h-3.5 w-3.5"></i>
                 </button>
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Task: Subscribe YouTube -->
+      <div class="relative bg-slate-800/70 rounded-xl p-5 border border-slate-700/50 hover:border-red-500/30 transition-colors">
+        <div class="flex items-start space-x-4">
+          <div class="p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 mt-0.5">
+            <i data-lucide="youtube" class="h-5 w-5 text-red-400"></i>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-base font-medium text-slate-100 mb-1.5">Subscribe YouTube</h3>
+            <p class="text-xs text-slate-400/80 leading-relaxed mb-3">Subscribe to our channel for the latest updates.</p>
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-1.5">
+                <svg class="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="currentColor"/>
+                </svg>
+                <span class="text-xs font-medium text-amber-400">1000 XP</span>
+              </div>
+              <div class="flex space-x-2">
+                <div class="relative">
+                  <button class="task-btn claim-btn bg-red-600/90 hover:bg-red-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all" data-task="youtube-subscribe">
+                    <i data-lucide="play" class="h-3.5 w-3.5"></i>
+                    <span>Claim</span>
+                  </button>
+                  <div class="code-input-container hidden flex space-x-2 items-center mt-2">
+                    <input type="text" class="code-input bg-slate-700/50 border border-slate-600/50 rounded-lg py-1.5 px-3 text-xs text-white w-24 focus:outline-none focus:ring-1 focus:ring-cyan-500" placeholder="Enter code">
+                    <button class="ok-btn bg-green-600/90 hover:bg-green-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all">
+                      <i data-lucide="check" class="h-3.5 w-3.5"></i>
+                      <span>OK</span>
+                    </button>
+                  </div>
+                </div>
+                <button class="visit-btn text-white rounded-lg p-1.5 flex items-center transition-all">
+                  <i data-lucide="external-link" class="h-3.5 w-3.5"></i>
+                </button>
+              </div>
+            </div>
+            <div id="youtubePinInputContainer" class="hidden flex space-x-2 items-center mt-2">
+              <input type="text" class="pin-input bg-slate-700/50 border border-slate-600/50 rounded-lg py-1.5 px-3 text-xs text-white w-24 focus:outline-none focus:ring-1 focus:ring-cyan-500" placeholder="PIN">
+              <button class="pin-submit-btn bg-blue-600/90 hover:bg-blue-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all">
+                <i data-lucide="lock" class="h-3.5 w-3.5"></i>
+                <span>Submit</span>
+              </button>
+            </div>
+            <div id="youtubeCodeDisplay" class="hidden flex items-center space-x-2 text-sm text-white p-2 rounded mt-2">
+              <span>Code: </span>
+              <span class="code-text"></span>
+              <button class="copy-btn text-white rounded p-1 transition-all" title="Copy code">
+                <i data-lucide="copy" class="h-4 w-4"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Task: Follow Twitter -->
+      <div class="relative bg-slate-800/70 rounded-xl p-5 border border-slate-700/50 hover:border-blue-500/30 transition-colors">
+        <div class="flex items-start space-x-4">
+          <div class="p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20 mt-0.5">
+            <i data-lucide="twitter" class="h-5 w-5 text-blue-400"></i>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-base font-medium text-slate-100 mb-1.5">Follow Twitter</h3>
+            <p class="text-xs text-slate-400/80 leading-relaxed mb-3">Follow our Twitter account for the latest updates.</p>
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-1.5">
+                <svg class="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="currentColor"/>
+                </svg>
+                <span class="text-xs font-medium text-amber-400">1000 XP</span>
+              </div>
+              <div class="flex space-x-2">
+                <div class="relative">
+                  <button class="task-btn claim-btn bg-blue-600/90 hover:bg-blue-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space
+
+-x-1 transition-all" data-task="twitter-follow">
+                    <i data-lucide="user-plus" class="h-3.5 w-3.5"></i>
+                    <span>Claim</span>
+                  </button>
+                  <div class="code-input-container hidden flex space-x-2 items-center mt-2">
+                    <input type="text" class="code-input bg-slate-700/50 border border-slate-600/50 rounded-lg py-1.5 px-3 text-xs text-white w-24 focus:outline-none focus:ring-1 focus:ring-cyan-500" placeholder="Enter code">
+                    <button class="ok-btn bg-green-600/90 hover:bg-green-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all">
+                      <i data-lucide="check" class="h-3.5 w-3.5"></i>
+                      <span>OK</span>
+                    </button>
+                  </div>
+                </div>
+                <button class="visit-btn text-white rounded-lg p-1.5 flex items-center transition-all">
+                  <i data-lucide="external-link" class="h-3.5 w-3.5"></i>
+                </button>
+              </div>
+            </div>
+            <div id="twitterPinInputContainer" class="hidden flex space-x-2 items-center mt-2">
+              <input type="text" class="pin-input bg-slate-700/50 border border-slate-600/50 rounded-lg py-1.5 px-3 text-xs text-white w-24 focus:outline-none focus:ring-1 focus:ring-cyan-500" placeholder="PIN">
+              <button class="pin-submit-btn bg-blue-600/90 hover:bg-blue-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all">
+                <i data-lucide="lock" class="h-3.5 w-3.5"></i>
+                <span>Submit</span>
+              </button>
+            </div>
+            <div id="twitterCodeDisplay" class="hidden flex items-center space-x-2 text-sm text-white p-2 rounded mt-2">
+              <span>Code: </span>
+              <span class="code-text"></span>
+              <button class="copy-btn text-white rounded p-1 transition-all" title="Copy code">
+                <i data-lucide="copy" class="h-4 w-4"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex justify-end">
+      <button id="closeDayTaskModalBottom" class="text-xs font-medium text-slate-300 hover:text-white bg-slate-700/50 hover:bg-slate-700/70 rounded-lg py-2 px-4 transition-colors duration-200 border border-slate-700/50 hover:border-slate-600/50">
+        Close
+      </button>
+    </div>
+  </div>
+</div>
+
+
+
+<style>
+  #dayTaskModal {
+    animation: modalFadeIn 0.3s ease-out forwards;
+  }
+  
+  #dayTaskModal.hide {
+    animation: modalFadeOut 0.2s ease-in forwards;
+  }
+  
+  @keyframes modalFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  
+  @keyframes modalFadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+  
+  .task-btn, .visit-btn, .ok-btn, .pin-submit-btn, .copy-btn {
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  
+  .task-btn:hover, .ok-btn:hover, .pin-submit-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  }
+  
+  .visit-btn:hover, .copy-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
+  }
+  
+  .code-input, .pin-input {
+    transition: all 0.3s ease;
+  }
+  
+  .code-input:focus, .pin-input:focus {
+    box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.3);
+  }
+
+
+</style>
+
 
 
           <!-- System Overview Card -->
@@ -1842,91 +2167,156 @@
           </div>
         </div>
 
-        <!-- Right Column (1/3 width) -->
-        <div class="space-y-6">
-          <!-- System Time Card -->
-          <div
-            class="card bg-gradient-to-br from-slate-800/70 to-slate-900/70 rounded-xl overflow-hidden border border-slate-700/50 shadow-xl">
-            <div class="bg-gradient-to-br from-slate-800 to-slate-900/90 p-6 border-b border-slate-700/50">
-              <div class="text-center">
-                <div class="text-xs text-slate-500 mb-1 font-mono tracking-wider">SYSTEM TIME</div>
-                <div id="systemTime" class="text-4xl font-mono text-cyan-400 mb-1 tracking-tighter">
-                  00:00:00
-                </div>
-                <div id="systemDate" class="text-sm text-slate-400 font-medium">
-                  Jan 1, 2025
-                </div>
-              </div>
-            </div>
-            <div class="p-5">
-              <div class="grid grid-cols-2 gap-3">
-                <!-- UPTIME -->
-                <div
-                  class="bg-gradient-to-br from-slate-800/50 to-slate-900/50 rounded-lg p-3 border border-slate-700/50">
-                  <div class="text-xs text-slate-500 mb-1 font-mono">UPTIME</div>
-                  <div id="uptime" class="text-sm font-mono text-slate-200">
-                    00d 00:00:00
-                  </div>
-                </div>
-                <!-- TIME ZONE -->
-                <div
-                  class="bg-gradient-to-br from-slate-800/50 to-slate-900/50 rounded-lg p-3 border border-slate-700/50">
-                  <div class="text-xs text-slate-500 mb-1 font-mono">TIME ZONE</div>
-                  <div id="timezone" class="text-sm font-mono text-slate-200">
-                    UTC+00:00
-                  </div>
-                </div>
-              </div>
-            </div>
+       <!-- Right Column - Futuristic Time Dashboard -->
+<div class="space-y-6">
+  <!-- Enhanced Time System Card -->
+  <div class="cardano from-gray-900 to-gray-950 rounded-2xl overflow-hidden border border-cyan-500/20 shadow-2xl backdrop-blur-sm">
+    <!-- Card Header with Holographic Effect -->
+    <div class="relative from-cyan-500/10 to-blue-600/10 p-6 border-b border-cyan-500/20">
+      <div class="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxkZWZzPjxwYXR0ZXJuIGlkPSJwYXR0ZXJuIiB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHBhdHRlcm5Vbml0cz0idXNlclNwYWNlT25Vc2UiIHBhdHRlcm5UcmFuc2Zvcm09InJvdGF0ZSg0NSkiPjxyZWN0IHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgZmlsbD0icmdiYSgyMCwgMjA1LCAyNTUsIDAuMDMpIi8+PC9wYXR0ZXJuPjwvZGVmcz48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSJ1cmwoI3BhdHRlcm4pIi8+PC9zdmc+')] opacity-30"></div>
+      <div class="relative text-center">
+        <div class="text-xs uppercase tracking-[0.3em] text-cyan-400/80 mb-1 font-sans font-light">Temporal Aqula</div>
+        <div id="systemTime" class="text-5xl font-mono text-cyan-300 mb-1 tracking-tighter font-light">
+          00:00:00.<span class="text-cyan-400/60 text-3xl">000</span>
+        </div>
+        <div id="systemDate" class="text-sm text-cyan-200/80 font-light tracking-wider">
+          JANUARY 1, 2025 • WEDNESDAY
+        </div>
+      </div>
+    </div>
+    
+    <!-- Card Body with Enhanced Features -->
+    <div class="p-5  from-gray-900/80 to-gray-950/80">
+      <div class="grid grid-cols-2 gap-4 mb-4">
+        <!-- UPTIME with Progress Bar -->
+        <div class="bg-gray-900/60 rounded-xl p-4 border border-cyan-500/10 hover:border-cyan-500/20 transition-all duration-300">
+          <div class="flex justify-between items-center mb-2">
+            <div class="text-xs text-cyan-400/70 font-mono tracking-wider">SYSTEM UPTIME</div>
+            <div class="text-xs text-cyan-300/50 font-mono">99.9%</div>
           </div>
+          <div id="uptime" class="text-lg font-mono text-white mb-2">00d 00:00:00</div>
+          <div class="h-1 bg-gray-800 rounded-full overflow-hidden">
+            <div class="h-full bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full" style="width: 99.9%"></div>
+          </div>
+        </div>
+        
+        <!-- TIME ZONE with World Indicator -->
+<div class=" rounded-xl p-4 border border-cyan-500/10 hover:border-cyan-500/20 transition-all duration-300">
+  <div class="text-xs text-cyan-400/70 font-mono tracking-wider mb-2 text-center">GLOBAL SYNCHRONIZATION</div>
+  <div class="flex flex-col">
+    <div>
+      <div id="timezone" class="text-lg font-mono text-white">UTC+00:00</div>
+      <div id="globalSyncCities" class="text-xs text-cyan-300/50 font-mono">LONDON NEW YORK TOKYO</div>
+    </div>
+    <div class="mt-2 flex justify-end">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 text-cyan-400">
+        <circle cx="12" cy="12" r="10"></circle>
+        <path d="M12 6v6l4 2"></path>
+      </svg>
+    </div>
+  </div>
+</div>
+      </div>
+      
+      <!-- New Features Section -->
+      <div class="grid grid-cols-3 gap-3">
+        <!-- Network Time Protocol Status -->
+        <div class=" rounded-lg p-3 border border-cyan-500/10 hover:border-cyan-500/20 transition-all duration-300">
+          <div class="text-[0.65rem] uppercase tracking-wider text-cyan-400/70 mb-1">NTP STATUS</div>
+          <div class="flex items-center">
+            <div class="w-2 h-2 rounded-full bg-green-500 mr-2 pulse-animation"></div>
+            <div id="ntpStatus" class="text-xs font-mono text-white">SYNCED</div>
+          </div>
+        </div>
+        
+        <!-- Leap Second Indicator -->
+        <div class=" rounded-lg p-3 border border-cyan-500/10 hover:border-cyan-500/20 transition-all duration-300">
+          <div class="text-[0.65rem] uppercase tracking-wider text-cyan-400/70 mb-1">LEAP SECOND</div>
+          <div id="leapSecond" class="text-xs font-mono text-white">NONE PENDING</div>
+        </div>
+        
+        <!-- Time Dilation (for fun futuristic element) -->
+        <div class=" rounded-lg p-3 border border-cyan-500/10 hover:border-cyan-500/20 transition-all duration-300">
+          <div class="text-[0.65rem] uppercase tracking-wider text-cyan-400/70 mb-1">RELATIVE DILATION</div>
+          <div id="relativeDilation" class="text-xs font-mono text-white">1.0000x</div>
+        </div>
+      </div>
+      
+      <!-- Atomic Clock Sync (Premium Feature) -->
+      <div class="mt-4 from-cyan-900/30 to-blue-900/30 rounded-xl p-4 border border-cyan-500/20">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-xs uppercase tracking-wider text-cyan-400/70 mb-1">ATOMIC CLOCK SYNC</div>
+            <div class="text-sm font-mono text-white">LAST SYNC: <span id="atomicClockSync" class="text-cyan-300">2.4ms ago</span></div>
+          </div>
+          <button id="manualSyncButton" class="px-3 py-1 bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/30 rounded-lg text-xs text-cyan-300 transition-all duration-200">
+            MANUAL SYNC
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+<style>
+  .pulse-animation {
+    animation: pulse 2s infinite;
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  
+  @keyframes pulse {
+    0% {
+      box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+    }
+    70% {
+      box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    }
+  }
+</style>
 
           <!-- Premium Quick Actions Dashboard -->
-          <div
-            class="card bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl overflow-hidden border border-slate-700/40 shadow-2xl backdrop-blur-sm">
-            <div
-              class="p-5 border-b border-slate-700/40 bg-gradient-to-r from-slate-800/90 to-slate-900/90 relative overflow-hidden">
-              <div
-                class="absolute inset-0 opacity-10 [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] [background-size:24px_24px]">
-              </div>
-              <div class="flex items-center relative z-10">
-                <div class="p-1.5 bg-cyan-500/10 rounded-lg border border-cyan-500/20 mr-3 backdrop-blur-sm">
-                  <svg viewBox="0 0 1000 1000" class="h-5 w-5 text-cyan-400" fill="currentColor" stroke="currentColor"
-                    stroke-width="0" xmlns="http://www.w3.org/2000/svg">
-                    <g>
-                      <path
-                        d="M191.136,659.499c0,16.568,13.432,30,30,30h557.728c16.568,0,30-13.432,30-30v-38.5H191.136V659.499z" />
-                      <path
-                        d="M619.59,800.399c-13.2-3.6-28.91-9.12-43.1-17.4c-15.67-9.11-29.48-21.58-35.99-38.5c-4.2-10.91-5.05-20.95-3.77-30h-73.46c1.28,9.05,0.43,19.09-3.77,30c-6.51,16.92-20.32,29.39-35.99,38.5c-14.19,8.28-29.9,13.8-43.1,17.4c-16.14,4.41-25.51,21.23-20.84,37.3c0.87,2.98,2.67,5.5,5.03,7.269c2.36,1.771,5.28,2.8,8.38,2.8h254.04c6.21,0,11.67-4.1,13.41-10.07c0.81-2.8,1.2-5.62,1.2-8.4C641.63,816.149,632.92,804.039,619.59,800.399z" />
-                      <path
-                        d="M500,489.266c6.903,0,12.5-5.596,12.5-12.5V177.231c0-6.904-5.597-12.5-12.5-12.5c-6.904,0-12.5,5.596-12.5,12.5v299.535C487.5,483.67,493.096,489.266,500,489.266z" />
-                      <path
-                        d="M587.126,419.939c39.793,0,72.167-32.374,72.167-72.167v-50.166h-50.167c-39.793,0-72.167,32.373-72.167,72.166v50.167H587.126z M609.126,322.606h25.167v25.166c0,26.008-21.159,47.167-47.167,47.167h-7.489l27.328-27.328c4.881-4.882,4.881-12.796,0-17.678c-4.882-4.882-12.796-4.882-17.678,0l-27.328,27.328v-7.489C561.959,343.764,583.118,322.606,609.126,322.606z" />
-                      <path
-                        d="M412.255,419.939h50.167v-50.167c0-39.793-32.374-72.166-72.167-72.166h-50.167v50.166C340.088,387.565,372.462,419.939,412.255,419.939z M365.088,322.606h25.167c26.008,0,47.167,21.159,47.167,47.166v7.489l-27.328-27.328c-4.881-4.881-12.796-4.881-17.678,0c-4.881,4.881-4.881,12.796,0,17.678l27.328,27.328h-7.489c-26.008,0-47.167-21.159-47.167-47.167V322.606z" />
-                      <path
-                        d="M778.864,297.794h-94.571v49.978c0,53.578-43.589,97.167-97.167,97.167H537.5v31.827c0,20.678-16.822,37.5-37.5,37.5c-20.678,0-37.5-16.822-37.5-37.5v-31.829c-0.026,0-0.052,0.002-0.078,0.002h-50.167c-53.578,0-97.167-43.589-97.167-97.167v-49.978h-93.952c-16.568,0-30,13.431-30,30v268.205h617.728V327.794C808.864,311.225,795.432,297.794,778.864,297.794z M261.224,561.999h-23.742c-6.903,0-12.5-5.596-12.5-12.5c0-6.903,5.597-12.5,12.5-12.5h23.742c6.903,0,12.5,5.597,12.5,12.5C273.724,556.403,268.127,561.999,261.224,561.999z M388.224,561.999h-76.871c-6.903,0-12.5-5.596-12.5-12.5c0-6.903,5.597-12.5,12.5-12.5h76.871c6.903,0,12.5,5.597,12.5,12.5C400.724,556.403,395.127,561.999,388.224,561.999z M431.724,512.499h-145.5c-6.904,0-12.5-5.597-12.5-12.5c0-6.903,5.596-12.5,12.5-12.5h145.5c6.903,0,12.5,5.597,12.5,12.5C444.224,506.903,438.627,512.499,431.724,512.499z M688.648,561.999h-76.871c-6.903,0-12.5-5.596-12.5-12.5c0-6.903,5.597-12.5,12.5-12.5h76.871c6.903,0,12.5,5.597,12.5,12.5C701.148,556.403,695.551,561.999,688.648,561.999z M713.776,512.499h-145.5c-6.903,0-12.5-5.597-12.5-12.5c0-6.903,5.597-12.5,12.5-12.5h145.5c6.904,0,12.5,5.597,12.5,12.5C726.276,506.903,720.68,512.499,713.776,512.499z M762.518,561.999h-23.742c-6.903,0-12.5-5.596-12.5-12.5c0-6.903,5.597-12.5,12.5-12.5h23.742c6.903,0,12.5,5.597,12.5,12.5C775.018,556.403,769.421,561.999,762.518,561.999z" />
-                      <path
-                        d="M587.435,274.564c39.793,0,72.167-32.374,72.167-72.167v-50.167h-50.167c-39.793,0-72.167,32.374-72.167,72.167v50.167H587.435z M609.435,177.231h25.167v25.167c0,26.008-21.159,47.166-47.167,47.166h-7.489l27.328-27.328c4.881-4.881,4.881-12.796,0-17.678c-4.881-4.881-12.796-4.88-17.678,0l-27.328,27.328v-7.489C562.269,198.39,583.428,177.231,609.435,177.231z" />
-                      <path
-                        d="M412.565,274.564h50.166v-50.167c0-39.793-32.374-72.167-72.166-72.167h-50.167v50.167C340.398,242.191,372.772,274.564,412.565,274.564z M365.398,177.231h25.167c26.008,0,47.166,21.159,47.166,47.167v7.489l-27.328-27.328c-4.882-4.882-12.796-4.882-17.678,0c-4.881,4.881-4.881,12.796,0,17.678l27.328,27.328h-7.489c-26.008,0-47.167-21.159-47.167-47.166V177.231z" />
-                    </g>
-                  </svg>
-                </div>
+ <div class="cardano from-gray-900 to-gray-950 rounded-2xl overflow-hidden border border-cyan-500/20 shadow-2xl backdrop-blur-sm">
+  <div class="p-5 border-b border-slate-700/40  from-slate-800/90 to-slate-900/90 relative overflow-hidden">
+    <div class="absolute inset-0 opacity-10 [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] [background-size:24px_24px]"></div>
 
-                <h3 class="text-lg font-semibold text-slate-100 tracking-wide flex-1">QUICK ACTIONS</h3>
-                <div class="h-1.5 w-8 bg-gradient-to-r from-cyan-500/70 to-blue-500/70 rounded-full"></div>
-              </div>
-            </div>
+    <!-- Flex Container untuk Centering -->
+    <div class="flex items-center justify-center gap-3 relative z-10 text-slate-100">
+
+      <!-- Teks "QUICK" -->
+      <h3 class="text-lg font-semibold tracking-wide">QUICK</h3>
+
+      <!-- SVG Icon (ditempatkan di tengah antara QUICK & ACTION) -->
+       <!-- SVG Icon Baru -->
+      <svg class="h-8 w-8 text-cyan-400 mr-3" viewBox="0 0 486.514 486.514" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+        <g>
+          <path d="M484.809,70.037c-1.073-0.802-2.462-1.052-3.745-0.674c-53.777,15.825-142.677,25.273-237.807,25.273c-95.131,0-184.031-9.448-237.809-25.273c-1.284-0.378-2.673-0.128-3.745,0.674C0.631,70.84,0,72.101,0,73.44v302.098c0,1.339,0.631,2.6,1.704,3.403c1.072,0.802,2.461,1.052,3.745,0.674c36.916-10.863,90.385-18.72,151.058-22.58v42.466c-19.153,2.408-35.97,5.616-49.149,9.495c-2.252,0.663-3.54,3.025-2.878,5.277c0.663,2.253,3.027,3.538,5.277,2.878c30.146-8.872,80.053-14.168,133.5-14.168s103.353,5.296,133.5,14.168c0.4,0.118,0.805,0.174,1.202,0.174c1.836,0,3.53-1.2,4.075-3.051c0.662-2.251-0.626-4.614-2.878-5.277c-13.18-3.878-29.996-7.087-49.149-9.495v-42.466c60.673,3.859,114.142,11.717,151.058,22.58c0.394,0.116,0.798,0.173,1.199,0.173c0.907,0,1.803-0.291,2.546-0.847c1.073-0.803,1.704-2.064,1.704-3.403V73.44C486.514,72.101,485.883,70.84,484.809,70.037z M321.507,398.502c-23.725-2.6-50.538-4.021-78.25-4.021c-27.712,0-54.525,1.421-78.25,4.021v-41.979c25.159-1.431,51.457-2.18,78.251-2.18c26.792,0,53.09,0.75,78.249,2.18V398.502z M243.258,345.842c-92.768,0-179.827,8.962-234.758,24.068V79.067c54.932,15.106,141.991,24.069,234.758,24.069c92.766,0,179.824-8.962,234.756-24.069v30.862c-15.346,4.342-33.575,8.237-54.248,11.589c-2.317,0.376-3.891,2.559-3.516,4.875c0.339,2.087,2.142,3.57,4.19,3.57c0.226,0,0.455-0.018,0.685-0.055c19.97-3.238,37.723-6.986,52.888-11.158v217.146c-54.93-15.107-141.986-24.07-234.756-24.07c-2.348,0-4.25,1.903-4.25,4.25c0,2.347,1.902,4.25,4.25,4.25c93.367,0,180.709,9.105,234.756,24.404v25.181C423.083,354.805,336.024,345.842,243.258,345.842z"/>
+          <path d="M320.78,140.703c0.08,0,0.161-0.002,0.242-0.007c21.588-1.209,42.51-2.931,62.184-5.119c2.333-0.26,4.014-2.361,3.754-4.694c-0.26-2.333-2.355-4.015-4.693-3.754c-19.52,2.171-40.285,3.88-61.72,5.08c-2.344,0.131-4.137,2.137-4.006,4.481C316.668,138.954,318.542,140.703,320.78,140.703z"/>
+          <path d="M34.413,161.474c1.088,0,2.175-0.415,3.005-1.245l36.884-36.884c1.66-1.66,1.66-4.351,0-6.011c-1.66-1.659-4.351-1.659-6.011,0l-36.884,36.884c-1.659,1.66-1.659,4.351,0,6.011C32.237,161.059,33.325,161.474,34.413,161.474z"/>
+          <path d="M34.413,210.369c1.088,0,2.175-0.415,3.005-1.245l85.779-85.779c1.659-1.66,1.659-4.351,0-6.011c-1.66-1.659-4.351-1.659-6.011,0l-85.779,85.779c-1.659,1.66,0,4.351,0,6.011C32.237,209.954,33.325,210.369,34.413,210.369z"/>
+          <path d="M166.079,117.335L31.407,252.007c-1.659,1.66-1.659,4.351,0,6.011c0.83,0.83,1.918,1.245,3.006,1.245c1.088,0,2.175-0.415,3.005-1.245L172.09,123.345c1.659-1.66,1.659-4.351,0-6.011C170.43,115.676,167.739,115.676,166.079,117.335z"/>
+        </g>
+      </svg>
+
+      <!-- Teks "ACTION" -->
+      <h3 class="text-lg font-semibold tracking-wide">ACTION</h3>
+
+    </div>
+  </div>
+
+          
             <div class="p-6">
               <div class="grid grid-cols-2 gap-3">
                 <!-- Security Scan Button -->
                 <button id="btnSecurityScan"
-                  class="relative overflow-hidden border border-slate-700/40 bg-gradient-to-br from-slate-800/70 to-slate-900/70 hover:from-slate-700/60 hover:to-slate-800/60 rounded-xl py-4 px-2 flex flex-col items-center space-y-2 transition-all duration-300 group hover:shadow-lg hover:shadow-cyan-500/10">
+                  class="relative overflow-hidden border border-slate-700/40  from-slate-800/70 to-slate-900/70 hover:from-slate-700/60 hover:to-slate-800/60 rounded-xl py-4 px-2 flex flex-col items-center space-y-2 transition-all duration-300 group hover:shadow-lg hover:shadow-cyan-500/10">
                   <div
-                    class="absolute inset-0 bg-[radial-gradient(circle_at_center,var(--tw-gradient-stops))] from-cyan-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                    class="absolute inset-0  from-cyan-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
                   </div>
                   <div
-                    class="p-2.5 bg-gradient-to-br from-cyan-500/15 to-cyan-600/15 rounded-lg border border-cyan-500/30 group-hover:border-cyan-400/50 group-hover:bg-cyan-500/20 transition-all duration-300 relative z-10">
+                    class="p-2.5 from-cyan-500/15 to-cyan-600/15 rounded-lg border border-cyan-500/30 group-hover:border-cyan-400/50 group-hover:bg-cyan-500/20 transition-all duration-300 relative z-10">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-cyan-400" fill="none"
                       viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
                       <path stroke-linecap="round" stroke-linejoin="round"
@@ -1937,32 +2327,15 @@
                     class="text-xs font-medium text-slate-300 group-hover:text-cyan-400 transition-colors duration-300 relative z-10">Security
                     Scan</span>
                 </button>
-                <!-- View Log Button -->
-                <button id="btnViewLog"
-                  class="relative overflow-hidden border border-slate-700/40 bg-gradient-to-br from-slate-800/70 to-slate-900/70 hover:from-slate-700/60 hover:to-slate-800/60 rounded-xl py-4 px-2 flex flex-col items-center space-y-2 transition-all duration-300 group hover:shadow-lg hover:shadow-cyan-500/10">
-                  <div
-                    class="absolute inset-0 bg-[radial-gradient(circle_at_center,var(--tw-gradient-stops))] from-cyan-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                  </div>
-                  <div
-                    class="p-2.5 bg-gradient-to-br from-cyan-500/15 to-cyan-600/15 rounded-lg border border-cyan-500/30 group-hover:border-cyan-400/50 group-hover:bg-cyan-500/20 transition-all duration-300 relative z-10">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-cyan-400" fill="none"
-                      viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
-                      <path stroke-linecap="round" stroke-linejoin="round"
-                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                  </div>
-                  <span
-                    class="text-xs font-medium text-slate-300 group-hover:text-cyan-400 transition-colors duration-300 relative z-10">View
-                    Scan Log</span>
-                </button>
+                
                 <!-- Sync Data Button -->
                 <button id="btnSyncData"
-                  class="relative overflow-hidden border border-slate-700/40 bg-gradient-to-br from-slate-800/70 to-slate-900/70 hover:from-slate-700/60 hover:to-slate-800/60 rounded-xl py-4 px-2 flex flex-col items-center space-y-2 transition-all duration-300 group hover:shadow-lg hover:shadow-cyan-500/10">
+                  class="relative overflow-hidden border border-slate-700/40  from-slate-800/70 to-slate-900/70 hover:from-slate-700/60 hover:to-slate-800/60 rounded-xl py-4 px-2 flex flex-col items-center space-y-2 transition-all duration-300 group hover:shadow-lg hover:shadow-cyan-500/10">
                   <div
-                    class="absolute inset-0 bg-[radial-gradient(circle_at_center,var(--tw-gradient-stops))] from-cyan-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                    class="absolute inset-0  from-cyan-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
                   </div>
                   <div
-                    class="p-2.5 bg-gradient-to-br from-cyan-500/15 to-cyan-600/15 rounded-lg border border-cyan-500/30 group-hover:border-cyan-400/50 group-hover:bg-cyan-500/20 transition-all duration-300 relative z-10">
+                    class="p-2.5  from-cyan-500/15 to-cyan-600/15 rounded-lg border border-cyan-500/30 group-hover:border-cyan-400/50 group-hover:bg-cyan-500/20 transition-all duration-300 relative z-10">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-cyan-400" fill="none"
                       viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
                       <path stroke-linecap="round" stroke-linejoin="round"
@@ -1975,12 +2348,12 @@
                 </button>
                 <!-- Backup Button -->
                 <button id="btnBackup"
-                  class="relative overflow-hidden border border-slate-700/40 bg-gradient-to-br from-slate-800/70 to-slate-900/70 hover:from-slate-700/60 hover:to-slate-800/60 rounded-xl py-4 px-2 flex flex-col items-center space-y-2 transition-all duration-300 group hover:shadow-lg hover:shadow-cyan-500/10">
+                  class="relative overflow-hidden border border-slate-700/40  from-slate-800/70 to-slate-900/70 hover:from-slate-700/60 hover:to-slate-800/60 rounded-xl py-4 px-2 flex flex-col items-center space-y-2 transition-all duration-300 group hover:shadow-lg hover:shadow-cyan-500/10">
                   <div
-                    class="absolute inset-0 bg-[radial-gradient(circle_at_center,var(--tw-gradient-stops))] from-cyan-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                    class="absolute inset-0from-cyan-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
                   </div>
                   <div
-                    class="p-2.5 bg-gradient-to-br from-cyan-500/15 to-cyan-600/15 rounded-lg border border-cyan-500/30 group-hover:border-cyan-400/50 group-hover:bg-cyan-500/20 transition-all duration-300 relative z-10">
+                    class="p-2.5  from-cyan-500/15 to-cyan-600/15 rounded-lg border border-cyan-500/30 group-hover:border-cyan-400/50 group-hover:bg-cyan-500/20 transition-all duration-300 relative z-10">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-cyan-400" fill="none"
                       viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
                       <path stroke-linecap="round" stroke-linejoin="round"
@@ -1992,12 +2365,12 @@
                 </button>
                 <!-- Console Button -->
                 <button id="btnConsole"
-                  class="relative overflow-hidden border border-slate-700/40 bg-gradient-to-br from-slate-800/70 to-slate-900/70 hover:from-slate-700/60 hover:to-slate-800/60 rounded-xl py-4 px-2 flex flex-col items-center space-y-2 transition-all duration-300 group hover:shadow-lg hover:shadow-cyan-500/10">
+                  class="relative overflow-hidden border border-slate-700/40 from-slate-800/70 to-slate-900/70 hover:from-slate-700/60 hover:to-slate-800/60 rounded-xl py-4 px-2 flex flex-col items-center space-y-2 transition-all duration-300 group hover:shadow-lg hover:shadow-cyan-500/10">
                   <div
                     class="absolute inset-0 bg-[radial-gradient(circle_at_center,var(--tw-gradient-stops))] from-cyan-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
                   </div>
                   <div
-                    class="p-2.5 bg-gradient-to-br from-cyan-500/15 to-cyan-600/15 rounded-lg border border-cyan-500/30 group-hover:border-cyan-400/50 group-hover:bg-cyan-500/20 transition-all duration-300 relative z-10">
+                    class="p-2.5 from-cyan-500/15 to-cyan-600/15 rounded-lg border border-cyan-500/30 group-hover:border-cyan-400/50 group-hover:bg-cyan-500/20 transition-all duration-300 relative z-10">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-cyan-400" fill="none"
                       viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
                       <path stroke-linecap="round" stroke-linejoin="round"
@@ -2020,7 +2393,7 @@
                   </div>
                 </div>
                 <div id="scanResultLog"
-                  class="bg-slate-900/60 border border-slate-700/30 rounded-lg p-4 h-48 overflow-y-auto font-mono text-xs text-slate-300 space-y-2 backdrop-blur-sm">
+                  class="border border-slate-700/30 rounded-lg p-4 h-48 overflow-y-auto font-mono text-xs text-slate-300 space-y-2 backdrop-blur-sm">
                   <div class="text-slate-500">> Checking file permissions...</div>
                 </div>
               </div>
@@ -2042,18 +2415,30 @@
           </div>
 
           <!-- Resource Allocation Card -->
-          <div
-            class="card bg-gradient-to-br from-slate-800/70 to-slate-900/70 rounded-xl overflow-hidden border border-slate-700/50 shadow-xl">
-            <div class="p-5 border-b border-slate-700/50 bg-gradient-to-r from-slate-800/80 to-slate-900/80">
+           <div class="cardano from-gray-900 to-gray-950 rounded-2xl overflow-hidden border border-cyan-500/20 shadow-2xl backdrop-blur-sm">
+            <div class="p-5 border-b border-slate-700/50  from-slate-800/80 to-slate-900/80">
               <div class="flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-cyan-400 mr-3" fill="none"
-                  viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                <!-- SVG Icon Diganti -->
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-cyan-400 mr-3" viewBox="0 0 48 48"
+                  fill="currentColor">
+                  
+                  <!-- Path pertama -->
+                  <path d="M8,10H26.2l1.4,1.4L25,14h8V6L30.4,8.6,27.8,6H8a2,2,0,0,0,0,4Z" />
+                  
+                  <!-- Path kedua -->
+                  <path d="M27.6,36.6,26.2,38H8a2,2,0,0,0,0,4H27.8l2.6-2.6L33,42V34H25Z" />
+                  
+                  <!-- Path ketiga -->
+                  <path d="M8,26H20v4l6-6-6-6v4H8a2,2,0,0,0,0,4Z" />
+                  
+                  <!-- Lingkaran sumber daya -->
+                  <circle cx="36" cy="24" r="8" />
                 </svg>
+          
                 <h3 class="text-lg font-semibold text-slate-100 tracking-wide">RESOURCE ALLOCATION</h3>
               </div>
             </div>
+          
             <div class="p-6">
               <div class="space-y-4">
                 <!-- Processing Power -->
@@ -2105,22 +2490,38 @@
           </div>
 
           <!-- Neural Interface Card with Real Functionality -->
-          <div
-            class="card bg-gradient-to-br from-slate-800/70 to-slate-900/70 rounded-xl overflow-hidden border border-slate-700/50 shadow-xl hover:shadow-cyan-500/10 transition-all">
-            <div class="p-5 border-b border-slate-700/50 bg-gradient-to-r from-slate-800/80 to-slate-900/80">
+           <div class="cardano from-gray-900 to-gray-950 rounded-2xl overflow-hidden border border-cyan-500/20 shadow-2xl backdrop-blur-sm">
+            <div class="p-5 border-b border-slate-700/50  from-slate-800/80 to-slate-900/80">
               <div class="flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-cyan-400 mr-3" fill="none"
-                  viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                  <path d="M8 12h.01M12 12h.01M16 12h.01" class="stroke-cyan-300" />
+                <!-- SVG Icon Diganti -->
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-cyan-400 mr-3" viewBox="0 0 200 200"
+                  fill="none" stroke="currentColor" stroke-width="8" stroke-linejoin="round">
+                  
+                  <!-- Lingkaran utama AI -->
+                  <path d="M106,27A23,23,0,1,0,62.45,37.33a18.45,18.45,0,0,0-9-2.33c-11,0-20,9.85-20,22a23.09,23.09,0,0,0,5.81,15.5A19.12,19.12,0,0,0,35,72c-12.7,0-23,12.54-23,28s10.3,28,23,28a19.12,19.12,0,0,0,4.31-.5A23.09,23.09,0,0,0,33.5,143c0,12.15,9,22,20,22a18.45,18.45,0,0,0,9-2.33A23,23,0,1,0,106,173c0-.34,0-0.67,0-1h0V28h0C106,27.67,106,27.34,106,27Z"
+                    fill="none" stroke="currentColor" />
+          
+                  <!-- Garis melengkung bawah -->
+                  <path d="M67.26,189.26a23,23,0,0,0,32.53-32.53H86.9" fill="none" stroke="currentColor" />
+          
+                  <!-- Garis atas -->
+                  <path d="M66.26,10.74A23,23,0,0,1,98.79,43.26H87.67" fill="none" stroke="currentColor" />
+          
+                  <!-- Polylines -->
+                  <polyline points="106 95 81 95 49.25 124.76" fill="none" stroke="currentColor" />
+                  <line x1="44.97" y1="86.65" x2="62.45" y2="111.44" fill="none" stroke="currentColor" />
+                  <line x1="62.45" y1="162.67" x2="74.5" y2="146" fill="none" stroke="currentColor" />
+                  <polyline points="62.45 37.49 71 51 71 71" fill="none" stroke="currentColor" />
+                  <line x1="152" y1="100" x2="104" y2="100" fill="none" stroke="currentColor" />
+                  <polyline points="107 131 131 131 143 152.67" fill="none" stroke="currentColor" />
+                  <polyline points="107 70 131 70 143 48.33" fill="none" stroke="currentColor" />
+          
+                  <!-- Lingkaran kuning -->
+                  <circle cx="171" cy="100" r="16" fill="none" stroke="currentColor" />
+                  <circle cx="149" cy="170" r="16" fill="none" stroke="currentColor" />
+                  <circle cx="149" cy="30" r="16" fill="none" stroke="currentColor" />
                 </svg>
+          
                 <h3 class="text-lg font-semibold text-slate-100 tracking-wide">NEURAL INTERFACE</h3>
                 <span id="connectionStatus"
                   class="ml-auto px-2 py-1 text-xs bg-cyan-600/30 text-cyan-300 rounded-full border border-cyan-400/20 flex items-center">
@@ -2128,12 +2529,13 @@
                   CONNECTING
                 </span>
               </div>
+           
 
               <div class="p-6">
                 <div class="space-y-5">
                   <!-- Brainwave Sync -->
                   <div
-                    class="p-4 bg-gradient-to-r from-slate-800/50 to-slate-900/40 rounded-lg border border-slate-700/50 hover:border-cyan-500/30 transition-all">
+                    class="p-4 from-slate-800/50 to-slate-900/40 rounded-lg border border-slate-700/50 hover:border-cyan-500/30 transition-all">
                     <div class="flex items-center justify-between mb-3">
                       <div class="flex items-center">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-cyan-400 mr-3" fill="none"
@@ -2170,8 +2572,7 @@
 
 
                 <!-- Cognitive Modules -->
-                <div
-                  class="p-4 bg-gradient-to-r from-slate-800/50 to-slate-900/40 rounded-lg border border-slate-700/50 hover:border-cyan-500/30 transition-all">
+                <div class="cardano from-gray-900 to-gray-950 rounded-2xl overflow-hidden border border-cyan-500/20 shadow-2xl backdrop-blur-sm">
                   <div class="flex items-center justify-between">
                     <div class="flex items-center">
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-cyan-400 mr-3" fill="none"
@@ -2183,7 +2584,7 @@
                     </div>
                     <div class="flex space-x-2">
                       <button id="decreaseModule"
-                        class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-700/50 border border-slate-600/50 text-cyan-300 hover:bg-cyan-600/30 transition-colors">
+                        class="w-7 h-7 flex items-center justify-center rounded-lg  border border-slate-600/50 text-cyan-300 hover:bg-cyan-600/30 transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
                           stroke="currentColor">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -2449,8 +2850,8 @@
 
 
           <!-- Crypto Realtime Info Card -->
-          <div class="card bg-gradient-to-br from-slate-800/70 to-slate-900/70 rounded-xl overflow-hidden border border-slate-700/50 shadow-xl">
-            <div class="p-5 border-b border-slate-700/50 bg-gradient-to-r from-slate-800/80 to-slate-900/80">
+           <div class="cardano from-gray-900 to-gray-950 rounded-2xl overflow-hidden border border-cyan-500/20 shadow-2xl backdrop-blur-sm">
+            <div class="p-5 border-b border-slate-700/50  from-slate-800/80 to-slate-900/80">
               <div class="flex items-center">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-emerald-400 mr-3" fill="none" viewBox="0 0 24 24"
                   stroke="currentColor">
@@ -2684,19 +3085,23 @@
 
 
           <!-- Environment Controls Card -->
-          <div
-            class="card bg-gradient-to-br from-slate-800/70 to-slate-900/70 rounded-xl overflow-hidden border border-slate-700/50 shadow-xl">
-            <div class="p-5 border-b border-slate-700/50 bg-gradient-to-r from-slate-800/80 to-slate-900/80">
+           <div class="cardano from-gray-900 to-gray-950 rounded-2xl overflow-hidden border border-cyan-500/20 shadow-2xl backdrop-blur-sm">
+            <div class="p-5 border-b border-slate-700/50  from-slate-800/80 to-slate-900/80">
               <div class="flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-cyan-400 mr-3" fill="none"
-                  viewBox="0 0 24 24" stroke="currentColor">
-                  <!-- Icon (Placeholder, as original was empty) -->
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
+                <!-- SVG Icon Diganti -->
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-cyan-400 mr-3" viewBox="0 0 48 48"
+                fill="currentColor">
+                <!-- Path utama (body) -->
+                <path d="M24,6.2c5.3,1.5,11.1,3.3,14,4.3V26.2c0,3.4-3.7,9.4-14,15.4-10.3-6.1-14-12-14-15.4V10.5c2.9-1.1,8.7-2.8,14-4.3M24,2S6,7.1,6,8V26.2c0,9.2,13.3,17.3,17,19.5a1.8,1.8,0,0,0,2,0c3.8-2.1,17-10.3,17-19.5V8c0-.9-18-6-18-6Z" />
+                
+                <!-- Path tambahan (ikon peringatan/internal) -->
+                <path d="M28.1,34.3L25,25h4a1,1,0,0,0,.7-1.7L20.8,11.2c-.4-.5-1.2,0-.9.5L23,21H19a1,1,0,0,0-.7,1.7l8.9,12.1C27.6,35.3,28.4,34.8,28.1,34.3Z" />
+              </svg>
+          
                 <h3 class="text-lg font-semibold text-slate-100 tracking-wide">ENVIRONMENT CONTROLS</h3>
               </div>
             </div>
+          
             <div class="p-6">
               <div class="space-y-4">
                 <!-- Power Management -->
@@ -3295,17 +3700,19 @@
         <div class="flex flex-col lg:flex-row lg:items-end justify-between mb-8">
           <div>
             <div class="flex items-center space-x-3">
-              <div
-                class="h-10 w-10 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24"
-                  stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M13 10V3L4 14h7v7l9-11h-7z" />
+              <div class="h-10 w-10 rounded-lg flex items-center justify-center">
+                <!-- SVG Icon - Warna Biru -->
+                <svg fill="#0D47A1" version="1.1" id="Capa_1" xmlns="http://www.w3.org/2000/svg"
+                  xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 96.891 96.891" xml:space="preserve">
+                  <g>
+                    <path d="M94.425,22.283C94.425,9.996,84.429,0,72.142,0c-8.865,0-16.535,5.205-20.121,12.718 c-2.33-0.398-4.719-0.617-7.16-0.617c-23.376,0-42.395,19.018-42.395,42.395s19.019,42.395,42.395,42.395 c23.376,0,42.395-19.019,42.395-42.395c0-4.896-0.845-9.599-2.379-13.979C90.769,36.386,94.425,29.575,94.425,22.283z M71.802,4.108 c9.807,0,17.783,7.978,17.783,17.783c0,4.145-1.488,8.095-4.042,11.219l-0.328-1.412c-0.325-0.334-0.708-0.613-1.153-0.841 c-2.222-1.14-4.521-2.085-6.848-2.978c-0.173-0.065-0.381-0.199-0.453-0.35c-0.189-0.42-0.32-0.866-0.458-1.304 c-0.084-0.283-0.159-0.547-0.467-0.684c-0.084-0.037-0.159-0.198-0.159-0.303c0.018-1.021-0.22-2.093,0.539-2.985 c0.023-0.027,0.033-0.067,0.048-0.1c0.41-0.894,0.479-1.917,1.052-2.75c0.014-0.019,0.018-0.046,0.021-0.07 c0.066-0.638,0.134-1.27,0.189-1.904c0.004-0.078-0.063-0.219-0.131-0.243c-0.314-0.11-0.299-0.364-0.297-0.617 c0-1.241,0-1.421-0.002-2.662c0-0.722-0.212-1.362-0.757-1.853c-0.622-0.558-1.259-1.098-1.897-1.636 c-0.307-0.261-0.334-0.461-0.045-0.748c0.129-0.126,0.289-0.218,0.438-0.324c-0.034-0.049-0.065-0.097-0.099-0.146 c-0.191,0-0.387-0.025-0.572,0.003c-0.707,0.114-1.416,0.214-2.107,0.376c-1.324,0.313-2.607,0.726-3.681,1.612 c-0.733,0.604-1.32,1.31-1.396,2.307c-0.035,0.523-0.031,1.049-0.035,1.57c-0.006,0.854,0.008,0.646-0.012,1.497 c-0.004,0.139-0.08,0.367-0.179,0.397c-0.345,0.113-0.354,0.333-0.308,0.62c0.035,0.197,0.009,0.404,0.052,0.597 c0.118,0.532,0.245,1.066,0.399,1.59c0.113,0.391,0.334,0.76,0.397,1.157c0.121,0.793,0.417,1.483,0.954,2.083 c0.087,0.1,0.154,0.265,0.145,0.397c-0.043,0.609-0.105,1.22-0.188,1.827c-0.017,0.118-0.142,0.294-0.242,0.317 c-0.405,0.083-0.468,0.395-0.565,0.713c-0.125,0.417-0.263,0.833-0.424,1.236c-0.05,0.126-0.177,0.256-0.301,0.313 c-0.72,0.313-1.456,0.603-2.184,0.907c-0.772,0.325-1.553,0.636-2.31,0.994c-0.778,0.374-1.534,0.792-2.296,1.201 c-0.449,0.24-0.869,0.506-1.218,0.836l-0.379,1.616c-2.683-3.159-4.271-7.211-4.271-11.479 C54.019,12.085,61.995,4.108,71.802,4.108z M84.007,44.522c-0.553-0.813-1.178-1.603-1.857-2.372c0.334-0.169,0.67-0.337,0.994-0.522 C83.464,42.579,83.757,43.542,84.007,44.522z M53.622,47.793c5.693,0.229,10.73,0.671,15.014,1.246 c0.145,1.786,0.225,3.605,0.225,5.457s-0.08,3.671-0.225,5.457c-4.283,0.575-9.32,1.018-15.014,1.246 c0.076-2.32,0.113-4.576,0.113-6.703S53.698,50.113,53.622,47.793z M67.78,39.808c0.938,0.319,1.941,0.564,3.066,0.661 l-1.98-2.734l3.072-8.403l-0.951-2.041h1.903l-0.952,2.041l3.071,8.403l-1.929,2.667c1.431-0.239,3.175-0.857,4.959-1.542 c-1.998,1.52-4.268,3.726-5.967,6.752C70.935,43.144,69.42,41.118,67.78,39.808z M64.075,43.033 c0.062,0.024,0.125,0.046,0.188,0.066c0.903,0.285,2.35,1.641,3.576,3.865c-4.592-0.571-9.529-0.95-14.292-1.152 c-0.185-4.339-0.521-8.815-1.009-13.052C55.01,37.349,59.049,41.072,64.075,43.033z M53.546,63.182 c4.97-0.211,10.139-0.609,14.896-1.223c-0.526,4.727-1.541,9.167-2.957,13.162c-3.996,1.416-8.436,2.432-13.162,2.958 C52.937,73.32,53.335,68.151,53.546,63.182z M51.735,54.496c0,2.344-0.035,4.604-0.101,6.773c-2.17,0.066-4.43,0.102-6.774,0.102 s-4.604-0.035-6.774-0.102c-0.066-2.17-0.101-4.43-0.101-6.773s0.035-4.604,0.101-6.774c2.17-0.066,4.43-0.101,6.774-0.101 s4.604,0.035,6.774,0.101C51.7,49.893,51.735,52.152,51.735,54.496z M51.563,63.257c-0.229,5.693-0.67,10.73-1.246,15.015 c-1.786,0.144-3.604,0.225-5.457,0.225s-3.671-0.081-5.457-0.225c-0.575-4.284-1.018-9.32-1.246-15.015 c2.32,0.077,4.576,0.114,6.703,0.114S49.244,63.334,51.563,63.257z M44.861,45.621c-2.127,0-4.383,0.037-6.703,0.114 c0.229-5.693,0.671-10.73,1.246-15.014c1.786-0.144,3.605-0.225,5.457-0.225s3.671,0.081,5.457,0.225 c0.576,4.284,1.019,9.32,1.246,15.014C49.244,45.658,46.988,45.621,44.861,45.621z M50.938,15.438 c-0.408,1.261-0.703,2.57-0.882,3.917c-0.592-1.979-1.259-3.66-2.017-4.889C49.028,14.688,49.993,15.021,50.938,15.438z M44.861,14.101 c1.676,0,3.738,5.249,5.166,14.594c-1.695-0.126-3.416-0.199-5.166-0.199s-3.47,0.073-5.165,0.2 C41.123,19.35,43.185,14.101,44.861,14.101z M37.677,28.877c-4.449,0.468-8.663,1.36-12.526,2.61 c3.765-9.109,9.697-15.491,16.531-17.021C39.894,17.365,38.586,22.665,37.677,28.877z M36.1,61.199 c-5.693-0.229-10.73-0.671-15.014-1.246c-0.144-1.786-0.225-3.605-0.225-5.457s0.081-3.671,0.225-5.457 c4.284-0.575,9.32-1.018,15.014-1.246c-0.077,2.32-0.114,4.576-0.114,6.703S36.023,58.879,36.1,61.199z M36.176,63.182 c0.211,4.97,0.609,10.139,1.222,14.896c-4.727-0.527-9.167-1.542-13.162-2.958c-1.416-3.996-2.431-8.435-2.958-13.162 C26.037,62.572,31.206,62.971,36.176,63.182z M36.176,45.811c-4.97,0.211-10.139,0.609-14.897,1.222 c0.527-4.727,1.542-9.167,2.958-13.162c3.996-1.416,8.435-2.431,13.162-2.958 C36.785,35.672,36.387,40.841,36.176,45.811z M34.887,15.35c-5.07,3.447-9.331,9.437-12.182,16.99 c-7.553,2.851-13.543,7.112-16.99,12.182C9.354,30.248,20.613,18.989,34.887,15.35z M21.852,34.786 c-1.25,3.864-2.143,8.077-2.61,12.526c-6.212,0.909-11.512,2.216-14.41,4.004C6.361,44.483,12.743,38.551,21.852,34.786 z M19.061,49.331c-0.127,1.695-0.2,3.415-0.2,5.165s0.073,3.47,0.2,5.165c-9.346-1.427-14.595-3.489-14.595-5.165 S9.715,50.758,19.061,49.331z M19.242,61.68c0.468,4.449,1.36,8.664,2.61,12.526c-9.109-3.765-15.491-9.696-17.021-16.53 C7.73,59.463,13.03,60.771,19.242,61.68z M5.715,64.471c3.447,5.069,9.437,9.33,16.99,12.182 c2.851,7.553,7.112,13.543,12.182,16.99C20.613,90.003,9.354,78.744,5.715,64.471z M25.151,77.505 c3.864,1.25,8.077,2.144,12.526,2.61c0.908,6.212,2.216,11.512,4.004,14.41C34.848,92.996,28.916,86.614,25.151,77.505 z M44.861,94.891c-1.676,0-3.738-5.248-5.165-14.594c1.695,0.126,3.415,0.199,5.165,0.199s3.47-0.073,5.166-0.2 C48.599,89.643,46.537,94.891,44.861,94.891z M52.045,80.115c4.448-0.469,8.663-1.36,12.526-2.61 c-3.766,9.109-9.697,15.491-16.531,17.021C49.827,91.627,51.136,86.327,52.045,80.115z M54.835,93.643 c5.07-3.447,9.331-9.438,12.182-16.99c7.553-2.852,13.543-7.112,16.99-12.182C80.368,78.744,69.108,90.003,54.835,93.643z M67.87,74.206 c1.25-3.864,2.143-8.077,2.609-12.526c6.213-0.908,11.512-2.216,14.41-4.004C83.36,64.51,76.979,70.441,67.87,74.206 z M85.256,54.496c0,1.676-5.249,3.738-14.595,5.165c0.127-1.695,0.199-3.415,0.199-5.165c0-0.621-0.02-1.232-0.037-1.848 c0.414,0.229,0.885,0.365,1.379,0.378c0.027,0,0.054,0.001,0.08,0.001c1.295,0,2.449-0.833,2.852-2.071 c0.087-0.269,0.201-0.515,0.301-0.771C81.774,51.512,85.256,53.131,85.256,54.496z M84.89,51.316 c-1.938-1.194-4.964-2.172-8.604-2.961c1.246-2.251,2.883-3.932,4.262-5.067C82.741,45.744,84.248,48.449,84.89,51.316z" />
+                  </g>
                 </svg>
               </div>
-              <h1
-                class="text-4xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-500">
-                AQULA NETWORK</h1>
+              
+              <h1 class="text-4xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-500">
+                AQULA NETWORK
+              </h1>
             </div>
             <p class="text-sm text-slate-400 mt-2 flex items-center">
               <span class="h-2 w-2 rounded-full bg-emerald-500 mr-2 animate-pulse"></span>
@@ -3345,18 +3752,24 @@
             class="p-6 border-b border-slate-700/50 bg-gradient-to-r from-slate-800/80 via-slate-900/80 to-slate-800/80 relative z-10">
             <div class="flex items-center justify-between">
               <div class="flex items-center">
-                <div
-                  class="h-10 w-10 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center mr-4">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24"
-                    stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                      d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 class="text-xl font-semibold text-slate-100 tracking-wide">AQULA MINING STATUS</h3>
-                  <p class="text-xs text-slate-400 mt-1">Real-time network performance metrics</p>
-                </div>
+                <svg class="h-10 w-10 rounded-lg flex items-center justify-center mr-4" viewBox="0 0 512 512"
+                xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <!-- Gradien biru berkilau -->
+                  <linearGradient id="blue-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:#2196F3; stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#0D47A1; stop-opacity:1" />
+                  </linearGradient>
+                </defs>
+                <path fill="url(#blue-glow)"
+                  d="M113.844 17.72c-8.426.04-16.812.833-25.094 2.436C195.65 84.503 275.473 170.516 338.47 270c2.526-53.76-19.07-109.13-53.533-154.25-14.097 5.298-31.477.742-43.468-11.25-11.98-11.98-16.558-29.347-11.282-43.438C194.46 34.105 153.68 17.52 113.844 17.72zm380.562 20.405L423.47 115.75l30.06 125.563-55.092 8.78-19.407 80.626 73.5 39.124-41.25 55.937 29.658 44.033-88.782-27.625 16.5-43.844L291.97 364.5l13.124-84.563-111.375 58.125-4.22 78.25-112.22-27.656-33.25 104.156h450.376V38.125zM261.156 58.72c-.388.01-.776.028-1.156.06-3.644.325-6.882 1.696-9.188 4-6.147 6.15-5.746 18.88 3.875 28.5 9.622 9.623 22.353 10.024 28.5 3.876 6.148-6.148 5.747-18.878-3.875-28.5-5.637-5.637-12.335-8.096-18.156-7.937zM196.5 127.593L25.28 298.874c4.273 11.926 11.027 21.05 25.25 25.626L221.97 153c-7.796-8.89-16.308-17.333-25.47-25.406zm158.78 11.625l9.314 84.686 27.437-84.687h-36.75zm-132.03 74.968l-20.156 35.937 92.687 7.375-72.53-43.313z">
+                </path>
+              </svg>
+              
+              <div>
+                <h3 class="text-xl font-semibold text-slate-100 tracking-wide">AQULA MINING STATUS</h3>
+                <p class="text-xs text-slate-400 mt-1">Real-time network performance metrics</p>
+              </div>
               </div>
               <span
                 class="bg-gradient-to-r from-emerald-600/20 to-green-600/20 text-emerald-400 border border-emerald-500/50 rounded-lg px-3 py-1.5 text-sm flex items-center shadow-lg shadow-emerald-500/10">
@@ -3398,30 +3811,33 @@
               </div>
 
               <!-- Network Latency - Enhanced -->
-              <div
-                class="bg-gradient-to-br from-slate-800/50 to-slate-900/50 rounded-xl border border-purple-500/30 p-5 relative overflow-hidden group hover:border-purple-500/60 transition-all duration-300">
-                <div
-                  class="absolute -right-6 -top-6 h-16 w-16 rounded-full bg-purple-500/10 group-hover:bg-purple-500/20 transition-all duration-300">
-                </div>
+              <div class="bg-gradient-to-br from-slate-800/50 to-slate-900/50 rounded-xl border border-purple-500/30 p-5 relative overflow-hidden group hover:border-purple-500/60 transition-all duration-300">
+                <div class="absolute -right-6 -top-6 h-16 w-16 rounded-full bg-purple-500/10 group-hover:bg-purple-500/20 transition-all duration-300"></div>
                 <div class="flex items-center justify-between mb-4">
                   <div class="text-sm text-slate-400 font-medium tracking-wider">NETWORK LATENCY</div>
-                  <div
-                    class="h-8 w-8 rounded-lg bg-purple-500/10 flex items-center justify-center group-hover:bg-purple-500/20 transition-all duration-300">
-                    <svg xmlns="http://www.w3.org/2000/svg"
+                  <div class="h-8 w-8 rounded-lg bg-purple-500/10 flex items-center justify-center group-hover:bg-purple-500/20 transition-all duration-300">
+                    <!-- Ikon SVG diganti -->
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor"
                       class="h-5 w-5 text-purple-500/80 group-hover:text-purple-400 transition-all duration-300"
-                      fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      viewBox="0 0 612 612">
+                      <path d="M175.205,239.62c0.127-1.965-0.533-3.902-1.833-5.381l-58.84-66.941c-1.3-1.479-3.135-2.381-5.102-2.508 c-1.975-0.126-3.902,0.533-5.381,1.833c-27.037,23.766-49.479,51.794-66.706,83.305c-0.944,1.729-1.165,3.762-0.611,5.651 c0.554,1.89,1.836,3.483,3.565,4.427l78.205,42.748c1.131,0.619,2.352,0.912,3.557,0.912c2.627,0,5.174-1.398,6.523-3.866 c11.386-20.828,26.229-39.359,44.114-55.08C174.178,243.422,175.08,241.587,175.205,239.62z"></path>
+                      <path d="M201.462,214.829c1.334,2.515,3.907,3.948,6.568,3.948c1.174,0,2.365-0.279,3.473-0.867 c20.962-11.117,43.512-18.371,67.025-21.561c4.064-0.551,6.913-4.293,6.362-8.358l-11.979-88.316 c-0.551-4.064-4.304-6.909-8.358-6.362c-35.708,4.843-69.949,15.857-101.772,32.736c-3.623,1.922-5.002,6.416-3.082,10.041 L201.462,214.829z"></path>
+                      <path d="M105.785,334.345l-86.017-23.338c-1.901-0.514-3.929-0.255-5.638,0.725s-2.958,2.598-3.475,4.499 C3.586,342.295,0,369.309,0,396.523c0,4.657,0.111,9.329,0.342,14.284c0.185,3.981,3.468,7.083,7.414,7.083 c0.116,0,0.234-0.002,0.35-0.008l89.031-4.113c1.967-0.09,3.82-0.96,5.145-2.415c1.327-1.455,2.022-3.38,1.93-5.347 c-0.155-3.341-0.23-6.444-0.23-9.484c0-18.02,2.365-35.873,7.029-53.066C112.082,339.499,109.743,335.42,105.785,334.345z"></path>
+                      <path d="M438.731,120.745c-32.411-15.625-67.04-25.308-102.925-28.786c-1.972-0.198-3.918,0.408-5.439,1.659 c-1.521,1.252-2.481,3.056-2.671,5.018l-8.593,88.712c-0.396,4.082,2.594,7.713,6.677,8.108 c23.652,2.291,46.463,8.669,67.8,18.954c1.015,0.49,2.118,0.738,3.225,0.738c0.826,0,1.654-0.139,2.45-0.416 c1.859-0.649,3.385-2.012,4.24-3.786l38.7-80.287C443.978,126.965,442.427,122.525,438.731,120.745z"></path>
+                      <path d="M569.642,245.337c0.48-1.911,0.184-3.932-0.828-5.624c-18.432-30.835-41.933-57.983-69.848-80.686 c-1.529-1.242-3.48-1.824-5.447-1.627c-1.959,0.203-3.758,1.174-5,2.702l-56.237,69.144c-1.242,1.529-1.828,3.488-1.625,5.447 c0.201,1.959,1.173,3.758,2.702,5.002c18.47,15.019,34.015,32.975,46.205,53.369c1.392,2.326,3.855,3.618,6.383,3.618 c1.297,0,2.61-0.34,3.803-1.054l76.501-45.728C567.94,248.889,569.16,247.248,569.642,245.337z"></path>
+                      <path d="M598.044,304.939c-1.228-3.915-5.397-6.096-9.308-4.867l-85.048,26.648c-3.915,1.226-6.093,5.393-4.867,9.306 c6.104,19.486,9.199,39.839,9.199,60.494c0,3.041-0.076,6.144-0.23,9.484c-0.092,1.967,0.602,3.892,1.93,5.347 c1.327,1.456,3.178,2.325,5.145,2.415l89.031,4.113c0.118,0.005,0.234,0.008,0.35,0.008c3.944,0,7.228-3.103,7.414-7.083 c0.229-4.955,0.342-9.627,0.342-14.284C612,365.306,607.306,334.494,598.044,304.939z"></path>
+                      <path d="M305.737,380.755c-1.281,0-2.555,0.042-3.824,0.11l-120.65-71.185c-2.953-1.745-6.702-1.308-9.176,1.065 c-2.476,2.371-3.07,6.099-1.456,9.121l65.815,123.355c-0.242,2.376-0.371,4.775-0.371,7.195c0,18.608,7.246,36.101,20.403,49.258 c13.158,13.158,30.652,20.404,49.26,20.404c18.608,0,36.101-7.248,49.258-20.404c13.158-13.157,20.403-30.65,20.403-49.258 c0-18.608-7.246-36.101-20.403-49.258C341.839,388.001,324.344,380.755,305.737,380.755z"></path>
                     </svg>
                   </div>
                 </div>
+              
                 <div id="latency" class="text-4xl font-bold mb-1 text-slate-100 flex items-end">
                   0<span class="text-lg text-slate-400 ml-2">ms</span>
                 </div>
+              
                 <div class="mt-6 flex items-center">
                   <div class="flex-1 h-1.5 bg-slate-700/50 rounded-full overflow-hidden mr-3">
-                    <div id="latencyProgress" class="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full"
-                      style="width: 0%"></div>
+                    <div id="latencyProgress" class="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full" style="width: 0%"></div>
                   </div>
                   <span id="latencyChange" class="text-xs font-mono text-purple-400">-0.0%</span>
                 </div>
@@ -4754,128 +5170,142 @@
         </div>
       </div>
     </div>
-    <div id="pageSecurity" class="page page-hidden">
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div class="col-span-2 space-y-6">
-          <div class="card border border-slate-700/50 rounded-xl overflow-hidden">
-            <div class="p-5 border-b border-slate-700/50 bg-gradient-to-r from-slate-800 to-slate-900/50">
-              <div class="flex items-center">
-                <i data-lucide="shield" class="h-6 w-6 text-green-400 mr-3"></i>
-                <h3 class="text-lg font-semibold text-slate-100">Device Security Monitoring</h3>
-              </div>
-            </div>
-            <div class="p-6">
-              <div class="space-y-5">
-                <!-- User Agent -->
-                <div
-                  class="flex items-center justify-between py-3 px-4 bg-slate-800/50 rounded-lg border border-slate-700/30">
-                  <div class="flex items-center">
-                    <i data-lucide="monitor" class="h-5 w-5 text-slate-400 mr-3"></i>
-                    <span class="text-sm font-medium text-slate-300">User Agent</span>
-                  </div>
-                  <span id="userAgent" class="text-sm font-medium text-slate-400 truncate max-w-xs">Unknown</span>
-                </div>
-                <!-- DevTools Status -->
-                <div
-                  class="flex items-center justify-between py-3 px-4 bg-slate-800/50 rounded-lg border border-slate-700/30">
-                  <div class="flex items-center">
-                    <i data-lucide="code" class="h-5 w-5 text-slate-400 mr-3"></i>
-                    <span class="text-sm font-medium text-slate-300">DevTools Status</span>
-                  </div>
-                  <span id="devtoolsStatus"
-                    class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-red-900/30 text-red-400 border border-red-700/50">
-                    <span class="w-2 h-2 mr-2 rounded-full bg-red-400 animate-pulse"></span>
-                    Closed
-                  </span>
-                </div>
-                <!-- Device Fingerprint -->
-                <div
-                  class="flex items-center justify-between py-3 px-4 bg-slate-800/50 rounded-lg border border-slate-700/30">
-                  <div class="flex items-center">
-                    <i data-lucide="fingerprint" class="h-5 w-5 text-slate-400 mr-3"></i>
-                    <span class="text-sm font-medium text-slate-300">Device Fingerprint</span>
-                  </div>
-                  <span id="deviceFingerprint"
-                    class="text-sm font-medium text-slate-400 truncate max-w-xs">Unknown</span>
-                </div>
-                <!-- IP Address -->
-                <div
-                  class="flex items-center justify-between py-3 px-4 bg-slate-800/50 rounded-lg border border-slate-700/30">
-                  <div class="flex items-center">
-                    <i data-lucide="globe" class="h-5 w-5 text-slate-400 mr-3"></i>
-                    <span class="text-sm font-medium text-slate-300">IP Address</span>
-                  </div>
-                  <span id="ipAddress" class="text-sm font-medium text-slate-400">Unknown</span>
-                </div>
-                <!-- Location -->
-                <div
-                  class="flex items-center justify-between py-3 px-4 bg-slate-800/50 rounded-lg border border-slate-700/30">
-                  <div class="flex items-center">
-                    <i data-lucide="map-pin" class="h-5 w-5 text-slate-400 mr-3"></i>
-                    <span class="text-sm font-medium text-slate-300">Location</span>
-                  </div>
-                  <span id="locationInfo" class="text-sm font-medium text-slate-400">Unknown</span>
-                </div>
-                <!-- Scan Button -->
-                <button id="runSecurityScanBtn"
-                  class="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white rounded-lg py-3 px-4 font-medium transition-all hover:shadow-lg hover:shadow-green-500/20 flex items-center justify-center">
-                  <i data-lucide="refresh-cw" class="h-5 w-5 mr-2"></i>
-                  Run Security Scan
-                </button>
-              </div>
-            </div>
+   <div id="pageSecurity" class="page page-hidden">
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div class="col-span-2 space-y-6">
+      <div class="card border border-slate-700/50 rounded-xl overflow-hidden">
+        <div class="p-5 border-b border-slate-700/50 bg-gradient-to-r from-slate-800 to-slate-900/50">
+          <div class="flex items-center">
+            <i data-lucide="shield" class="h-6 w-6 text-green-400 mr-3"></i>
+            <h3 class="text-lg font-semibold text-slate-100">Device Security Monitoring</h3>
           </div>
-          <div class="card">
-            <div class="p-4 border-b border-slate-700/50">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center">
-                  <i data-lucide="activity" class="h-5 w-5 text-green-500 mr-2"></i>
-                  <h3 class="text-slate-100">Security Log</h3>
-                </div>
-                <div class="flex items-center space-x-2">
-                  <span
-                    class="bg-slate-800/50 text-green-400 border border-green-500/50 rounded-md px-2 py-1 text-xs flex items-center">
-                    <span class="h-1.5 w-1.5 rounded-full bg-green-500 mr-1 animate-pulse"></span>
-                    LIVE
-                  </span>
-                  <button class="text-slate-400 p-2">
-                    <i data-lucide="refresh-cw" class="h-4 w-4"></i>
-                  </button>
-                </div>
+        </div>
+        <div class="p-6">
+          <div class="space-y-5">
+
+            <!-- User Agent -->
+            <div class="flex items-center justify-between py-3 px-4 bg-slate-800/50 rounded-lg border border-slate-700/30">
+              <div class="flex items-center">
+                <i data-lucide="monitor" class="h-5 w-5 text-slate-400 mr-3"></i>
+                <span class="text-sm font-medium text-slate-300">User Agent</span>
               </div>
+              <span id="userAgent" class="text-sm font-medium text-slate-400 truncate max-w-xs">Unknown</span>
             </div>
-            <div class="p-6">
-              <div id="securityLog" class="space-y-3">
-                <!-- Logs will be populated dynamically -->
+
+            <!-- DevTools Status -->
+            <div class="flex items-center justify-between py-3 px-4 bg-slate-800/50 rounded-lg border border-slate-700/30">
+              <div class="flex items-center">
+                <i data-lucide="code" class="h-5 w-5 text-slate-400 mr-3"></i>
+                <span class="text-sm font-medium text-slate-300">DevTools Status</span>
               </div>
+              <span id="devtoolsStatus"
+                class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-red-900/30 text-red-400 border border-red-700/50">
+                <span class="w-2 h-2 mr-2 rounded-full bg-red-400 animate-pulse"></span>
+                Closed
+              </span>
+            </div>
+
+            <!-- Biometric Fingerprint -->
+            <div id="biometricAuthSection"
+              class="flex items-center justify-between py-3 px-4 bg-slate-800/50 rounded-lg border border-slate-700/30">
+              <div class="flex items-center">
+                <i data-lucide="fingerprint" class="h-5 w-5 text-purple-400 mr-3"></i>
+                <span class="text-sm font-medium text-slate-300">Biometric Authentication</span>
+              </div>
+              <span id="biometricStatus"
+                class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-red-900/30 text-red-400 border border-red-700/50">
+                <span class="w-2 h-2 mr-2 rounded-full bg-red-400 animate-pulse"></span>
+                Not Verified
+              </span>
+            </div>
+
+            <!-- IP Address -->
+            <div class="flex items-center justify-between py-3 px-4 bg-slate-800/50 rounded-lg border border-slate-700/30">
+              <div class="flex items-center">
+                <i data-lucide="globe" class="h-5 w-5 text-slate-400 mr-3"></i>
+                <span class="text-sm font-medium text-slate-300">IP Address</span>
+              </div>
+              <span id="ipAddress" class="text-sm font-medium text-slate-400">Unknown</span>
+            </div>
+
+            <!-- Location -->
+            <div class="flex items-center justify-between py-3 px-4 bg-slate-800/50 rounded-lg border border-slate-700/30">
+              <div class="flex items-center">
+                <i data-lucide="map-pin" class="h-5 w-5 text-slate-400 mr-3"></i>
+                <span class="text-sm font-medium text-slate-300">Location</span>
+              </div>
+              <span id="locationInfo" class="text-sm font-medium text-slate-400">Unknown</span>
+            </div>
+
+            <!-- Scan Button -->
+            <button id="runSecurityScanBtn"
+              class="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white rounded-lg py-3 px-4 font-medium transition-all hover:shadow-lg hover:shadow-green-500/20 flex items-center justify-center">
+              <i data-lucide="refresh-cw" class="h-5 w-5 mr-2"></i>
+              Run Security Scan
+            </button>
+
+            <!-- Biometric Login Button -->
+            <button id="biometricLoginBtn"
+              class="w-full bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 text-white rounded-lg py-3 px-4 font-medium transition-all hover:shadow-lg hover:shadow-blue-500/20 flex items-center justify-center mt-4">
+              <i data-lucide="fingerprint" class="h-5 w-5 mr-2"></i>
+              Verify with Fingerprint
+            </button>
+
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="p-4 border-b border-slate-700/50">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center">
+              <i data-lucide="activity" class="h-5 w-5 text-green-500 mr-2"></i>
+              <h3 class="text-slate-100">Security Log</h3>
+            </div>
+            <div class="flex items-center space-x-2">
+              <span
+                class="bg-slate-800/50 text-green-400 border border-green-500/50 rounded-md px-2 py-1 text-xs flex items-center">
+                <span class="h-1.5 w-1.5 rounded-full bg-green-500 mr-1 animate-pulse"></span>
+                LIVE
+              </span>
+              <button class="text-slate-400 p-2">
+                <i data-lucide="refresh-cw" class="h-4 w-4"></i>
+              </button>
             </div>
           </div>
         </div>
-        <div class="space-y-6">
-          <div class="card">
-            <div class="p-6">
-              <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-semibold text-slate-100">Security Actions</h3>
-                <i data-lucide="info" class="h-5 w-5 text-slate-400"></i>
-              </div>
-              <div class="space-y-3">
-                <button id="clearSecurityLogBtn"
-                  class="w-full bg-slate-800/50 hover:bg-slate-700/50 rounded-md px-3 py-2 text-sm text-slate-100 flex items-center">
-                  <i data-lucide="trash" class="h-4 w-4 mr-2"></i>
-                  Clear Security Logs
-                </button>
-                <button id="configureAlertsBtn"
-                  class="w-full bg-slate-800/50 hover:bg-slate-700/50 rounded-md px-3 py-2 text-sm text-slate-100 flex items-center">
-                  <i data-lucide="bell" class="h-4 w-4 mr-2"></i>
-                  Configure Alerts
-                </button>
-              </div>
-            </div>
+        <div class="p-6">
+          <div id="securityLog" class="space-y-3">
+            <!-- Logs will be populated dynamically -->
           </div>
         </div>
       </div>
     </div>
 
+    <div class="space-y-6">
+      <div class="card">
+        <div class="p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-slate-100">Security Actions</h3>
+            <i data-lucide="info" class="h-5 w-5 text-slate-400"></i>
+          </div>
+          <div class="space-y-3">
+            <button id="clearSecurityLogBtn"
+              class="w-full bg-slate-800/50 hover:bg-slate-700/50 rounded-md px-3 py-2 text-sm text-slate-100 flex items-center">
+              <i data-lucide="trash" class="h-4 w-4 mr-2"></i>
+              Clear Security Logs
+            </button>
+            <button id="configureAlertsBtn"
+              class="w-full bg-slate-800/50 hover:bg-slate-700/50 rounded-md px-3 py-2 text-sm text-slate-100 flex items-center">
+              <i data-lucide="bell" class="h-4 w-4 mr-2"></i>
+              Configure Alerts
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
     <div id="pageCommunications" class="page">
       <!-- Premium Communication Card -->
@@ -5346,16 +5776,23 @@
                     Closed
                   </span>
                 </div>
-                <!-- Device Fingerprint -->
-                <div
-                  class="flex items-center justify-between py-3 px-4 bg-slate-800/50 rounded-lg border border-slate-700/30">
-                  <div class="flex items-center">
-                    <i data-lucide="fingerprint" class="h-5 w-5 text-slate-400 mr-3"></i>
-                    <span class="text-sm font-medium text-slate-300">Device Fingerprint</span>
-                  </div>
-                  <span id="deviceFingerprint"
-                    class="text-sm font-medium text-slate-400 truncate max-w-xs">Unknown</span>
-                </div>
+               <!-- Device Fingerprint -->
+<div
+  class="flex items-center justify-between py-3 px-4 bg-slate-800/50 rounded-lg border border-slate-700/30 group hover:border-slate-600 transition-all">
+  <div class="flex items-center">
+    <div class="p-2 rounded-md bg-purple-500/10 group-hover:bg-purple-500/20 transition-colors">
+      <i data-lucide="fingerprint" class="h-4 w-4 text-purple-400"></i>
+    </div>
+    <div class="ml-3">
+      <span class="block text-sm font-medium text-slate-300">Device Fingerprint</span>
+      <span class="block text-xs text-slate-500">Unique identifier for this device</span>
+    </div>
+  </div>
+  <span id="deviceFingerprint"
+    class="text-sm font-medium text-slate-400 truncate max-w-xs px-2 py-1 rounded bg-slate-900/30 border border-slate-700">
+    Unknown
+  </span>
+</div>
                 <!-- IP Address -->
                 <div
                   class="flex items-center justify-between py-3 px-4 bg-slate-800/50 rounded-lg border border-slate-700/30">
@@ -5436,7 +5873,7 @@
 
 
 
-    <div id="pageSettings" class="page page-hidden">
+   <div id="pageSettings" class="page page-hidden">
       <div class="card max-w-8xl mx-auto overflow-hidden">
         <!-- Header Section -->
         <div
@@ -5808,7 +6245,10 @@
                   </button>
                 </div>
               </div>
+            </div>
 
+            <!-- Right Column -->
+            <div class="lg:col-span-1 space-y-6">
               <!-- Password Section -->
               <div class="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
                 <h4 class="text-lg font-semibold text-slate-200 mb-4 flex items-center">
@@ -5894,10 +6334,8 @@
                   </div>
                 </div>
               </div>
-            </div>
 
-            <!-- Right Column - Danger Zone -->
-            <div class="lg:col-span-1">
+              <!-- Danger Zone -->
               <div class="bg-slate-800/50 rounded-xl p-6 border border-red-900/50 sticky top-6">
                 <h4 class="text-lg font-semibold text-red-400 mb-4 flex items-center">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24"
@@ -6783,42 +7221,42 @@
         document.getElementById("emailInput")?.addEventListener("input", function () {
           const value = this.value.trim();
           const isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-          toggleError(this, !isValid, "Masukkan alamat email yang valid.");
+          toggleError(this, !isValid, "Enter a valid email address.");
         });
 
         document.getElementById("passwordInput")?.addEventListener("input", function () {
           const value = this.value;
           const isValid = value.length >= 6;
-          toggleError(this, !isValid, "Kata sandi harus minimal 6 karakter.");
+          toggleError(this, !isValid, "Password must be at least 6 characters.");
         });
 
         document.getElementById("regEmailInput")?.addEventListener("input", async function () {
           const value = this.value.trim();
           const isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
           if (!isValid) {
-            toggleError(this, true, "Masukkan alamat email yang valid.");
+            toggleError(this, true, "Enter a valid email address.");
             return;
           }
 
           try {
             const emailExists = await checkEmailExists(value);
-            toggleError(this, emailExists, "Email sudah terdaftar. Gunakan email lain atau login.");
+            toggleError(this, emailExists, "Email already registered. Use another email or login.");
           } catch (error) {
-            toggleError(this, true, "Gagal memeriksa email. Coba lagi.");
+            toggleError(this, true, "Failed to check email. Try again.");
           }
         });
 
         document.getElementById("regPasswordInput")?.addEventListener("input", function () {
           const value = this.value;
           const isValid = passwordRegex.test(value);
-          toggleError(this, !isValid, "Kata sandi harus mengandung huruf besar, huruf kecil, angka, dan karakter khusus.");
+          toggleError(this, !isValid, "Passwords must contain uppercase letters, lowercase letters, numbers, and special characters.");
         });
 
         document.getElementById("referralInput")?.addEventListener("input", async function () {
           const value = this.value.trim();
           if (value) {
             const { valid } = await validateReferralCode(value);
-            toggleError(this, !valid, "Kode referral tidak valid.");
+            toggleError(this, !valid, "Invalid referral code.");
           } else {
             toggleError(this, false);
           }
@@ -7530,28 +7968,74 @@
                 `).join('');
         },
 
-        // Fungsi untuk memperbarui tab Storage
-        async updateStorageTab() {
-          if (navigator.storage && navigator.storage.estimate) {
-            try {
-              const { usage, quota } = await navigator.storage.estimate();
-              const usageGB = (usage / 1e9).toFixed(2);
-              const quotaGB = (quota / 1e9).toFixed(2);
-              this.elements.storageInfo.innerHTML = `
-                            <div>Used: ${usageGB} GB</div>
-                            <div>Available: ${quotaGB} GB</div>
-                            <div class="mt-4 h-1.5 bg-slate-700/50 rounded-full overflow-hidden">
-                                <div class="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full" style="width: ${(usage / quota * 100).toFixed(0)}%"></div>
-                            </div>
-                        `;
-            } catch (error) {
-              console.error('Error fetching storage info:', error);
-              this.elements.storageInfo.innerHTML = 'Storage information not available.';
-            }
-          } else {
-            this.elements.storageInfo.innerHTML = 'Storage information not available in this browser.';
-          }
-        },
+      async updateStorageTab() {
+  try {
+    // Dapatkan informasi storage
+    let usageGB, quotaGB, percentage;
+    
+    if (navigator.storage?.estimate) {
+      const { usage, quota } = await navigator.storage.estimate();
+      usageGB = (usage / (1024 ** 3)).toFixed(1); // Convert to GB, 1 decimal
+      quotaGB = (quota / (1024 ** 3)).toFixed(1);
+      percentage = Math.min((usage / quota) * 100, 100).toFixed(1);
+    } else {
+      // Fallback data sesuai gambar
+      usageGB = "324.0";
+      quotaGB = "512.0";
+      percentage = "63.0";
+    }
+
+    const freeGB = (parseFloat(quotaGB) - parseFloat(usageGB)).toFixed(1);
+    const usedPercentage = parseFloat(percentage);
+
+    // Generate HTML compact seperti gambar
+    this.elements.storageInfo.innerHTML = `
+      <div class="storage-card bg-gray-800/90 p-4 rounded-xl border border-gray-700/50 shadow-sm">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-3">
+          <div class="flex items-center space-x-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/>
+            </svg>
+            <h3 class="text-sm font-semibold text-white">System Device (A:)</h3>
+          </div>
+          <span class="text-xs px-2 py-1 rounded bg-gray-700/50 text-blue-300">IDB</span>
+        </div>
+
+        <!-- Usage info -->
+        <div class="mb-2">
+          <div class="flex justify-between text-xs text-gray-300 mb-1">
+            <span>${usageGB} GB / ${quotaGB} GB</span>
+            <span>${percentage}%</span>
+          </div>
+          <div class="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+            <div class="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full" 
+                 style="width: ${percentage}%"></div>
+          </div>
+        </div>
+
+        <!-- Free space & details -->
+        <div class="flex justify-between items-center text-xs">
+          <span class="text-gray-400">Free: ${freeGB} GB</span>
+          <button class="text-blue-400 hover:text-blue-300 transition-colors flex items-center">
+            <span>Details</span>
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    `;
+
+  } catch (error) {
+    console.error('Error updating storage tab:', error);
+    this.elements.storageInfo.innerHTML = `
+      <div class="bg-gray-800 p-3 rounded-xl border border-gray-700 text-center text-xs">
+        <p class="text-red-400">⚠️ Storage data unavailable</p>
+      </div>
+    `;
+  }
+},
 
         // Fungsi untuk memperbarui grafik dan system load
         updateChart() {
@@ -7805,7 +8289,7 @@
 
 
 
-      // START: Fungsi untuk menampilkan notifikasi toast
+     // START: Fungsi untuk menampilkan notifikasi toast
       function showToast(title, description, variant = "default") {
         const variants = {
           default: {
@@ -8781,126 +9265,212 @@ You are asking for user language.
 
       }); // Akhir DOMContentLoaded
 
-      // =========================================================================
-      // BAGIAN 4: WAKTU & TANGGAL SISTEM (Dalam DOMContentLoaded)
-      // =========================================================================
-      document.addEventListener("DOMContentLoaded", function () {
-        // Elemen DOM untuk waktu dan tanggal
-        const systemTime = document.getElementById("systemTime");
-        const systemDate = document.getElementById("systemDate");
+   document.addEventListener("DOMContentLoaded", function () {
+  // Elemen DOM untuk semua fitur dashboard
+  const systemTime = document.getElementById("systemTime");
+  const systemDate = document.getElementById("systemDate");
+  const uptimeDisplay = document.getElementById("uptime");
+  const timezoneDisplay = document.getElementById("timezone");
+  const ntpStatusDisplay = document.getElementById("ntpStatus");
+  const leapSecondDisplay = document.getElementById("leapSecond");
+  const relativeDilationDisplay = document.getElementById("relativeDilation");
+  const atomicClockSyncDisplay = document.getElementById("atomicClockSync");
+  const manualSyncButton = document.getElementById("manualSyncButton");
+  const globalSyncCities = document.getElementById("globalSyncCities");
 
-        /**
-         * @function updateSystemTime
-         * @description Memperbarui tampilan waktu dan tanggal sistem pada elemen DOM terkait.
-         */
-        function updateSystemTime() {
-          const now = new Date();
+  // Daftar kota untuk Global Synchronization
+  const CITIES = [
+    { name: "London", zone: "Europe/London" },
+    { name: "New York", zone: "America/New_York" },
+    { name: "Tokyo", zone: "Asia/Tokyo" }
+  ];
 
-          if (systemTime) {
-            // Format Waktu: HH:MM:SS (24 jam)
-            systemTime.textContent = now.toLocaleTimeString("en-US", { hour12: false });
-          }
-          if (systemDate) {
-            // Format Tanggal: Short Month, Day, Year (e.g., May 5, 2025)
-            systemDate.textContent = now.toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            });
-          }
-        }
-        /**
-         * @description Akhir dari fungsi updateSystemTime.
-         */
+  /**
+   * @function updateSystemTime
+   * @description Memperbarui tampilan waktu dan tanggal sistem pada elemen DOM terkait.
+   */
+  function updateSystemTime() {
+    const now = new Date();
+    if (systemTime) {
+      const timeString = now.toLocaleTimeString("en-US", { hour12: false });
+      const milliseconds = String(now.getMilliseconds()).padStart(3, '0');
+      systemTime.innerHTML = `${timeString}.<span class="text-cyan-400/60 text-3xl">${milliseconds}</span>`;
+    }
+    if (systemDate) {
+      const dateOptions = {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+        weekday: "long"
+      };
+      systemDate.textContent = now.toLocaleDateString("en-US", dateOptions).toUpperCase();
+    }
+  }
 
-        // Panggil fungsi sekali saat load untuk menampilkan waktu awal
-        updateSystemTime();
-        // Set interval untuk memperbarui waktu setiap detik
-        setInterval(updateSystemTime, 1000);
-      }); // Akhir dari DOMContentLoaded untuk Waktu & Tanggal
+  /**
+   * @function formatDuration
+   * @description Mengubah durasi dalam milidetik menjadi format "Xd HH:MM:SS".
+   * @param {number} ms - Durasi dalam milidetik.
+   * @returns {string} String durasi yang diformat.
+   */
+  function formatDuration(ms) {
+    let seconds = Math.floor((ms / 1000) % 60);
+    let minutes = Math.floor((ms / (1000 * 60)) % 60);
+    let hours = Math.floor((ms / (1000 * 60 * 60)) % 24);
+    let days = Math.floor(ms / (1000 * 60 * 60 * 24));
+    const paddedHours = String(hours).padStart(2, '0');
+    const paddedMinutes = String(minutes).padStart(2, '0');
+    const paddedSeconds = String(seconds).padStart(2, '0');
+    return `${days}d ${paddedHours}:${paddedMinutes}:${paddedSeconds}`;
+  }
+
+  /**
+   * @function updateUptime
+   * @description Menghitung dan memperbarui tampilan uptime sistem/aplikasi.
+   */
+  const startTime = new Date();
+  function updateUptime() {
+    if (!uptimeDisplay) return;
+    const now = new Date();
+    const diff = now - startTime;
+    uptimeDisplay.textContent = formatDuration(diff);
+  }
+
+  /**
+   * @function updateTimezone
+   * @description Mendapatkan dan memperbarui tampilan timezone lokal dalam format UTC offset.
+   */
+  function updateTimezone() {
+    if (!timezoneDisplay) return;
+    const offsetMin = new Date().getTimezoneOffset();
+    const offsetHrsAbs = Math.abs(Math.floor(offsetMin / 60));
+    const offsetMinsAbs = Math.abs(offsetMin % 60);
+    const sign = offsetMin <= 0 ? "+" : "-";
+    const formattedOffset = `UTC${sign}${String(offsetHrsAbs).padStart(2, '0')}:${String(offsetMinsAbs).padStart(2, '0')}`;
+    timezoneDisplay.textContent = formattedOffset;
+  }
+
+  /**
+   * @function updateGlobalSynchronization
+   * @description Memperbarui waktu untuk London, New York, Tokyo berdasarkan zona waktu lokal.
+   */
+  function updateGlobalSynchronization() {
+    if (!globalSyncCities) return;
+    const cityTimes = CITIES.map(city => {
+      const time = new Date().toLocaleTimeString("en-US", {
+        hour12: false,
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: city.zone
+      });
+      return `${city.name}: ${time}`;
+    });
+    globalSyncCities.textContent = cityTimes.join(" • ");
+  }
+
+  /**
+   * @function updateNTPStatus
+   * @description Memperbarui status NTP dengan simulasi sinkronisasi.
+   */
+  function updateNTPStatus() {
+    if (!ntpStatusDisplay) return;
+    const isSynced = Math.random() > 0.1; // 90% kemungkinan synced
+    ntpStatusDisplay.textContent = isSynced ? "SYNCED" : "DESYNCED";
+    const ntpDot = ntpStatusDisplay.previousElementSibling;
+    ntpDot.classList.toggle("bg-green-500", isSynced);
+    ntpDot.classList.toggle("bg-red-500", !isSynced);
+  }
+
+  /**
+   * @function checkLeapSecond
+   * @description Memeriksa apakah leap second mungkin terjadi berdasarkan bulan saat ini.
+   */
+  function checkLeapSecond() {
+    if (!leapSecondDisplay) return;
+    const now = new Date();
+    const month = now.getUTCMonth(); // 0=Jan, 5=June, 11=Dec
+    if (month === 5 || month === 11) {
+      leapSecondDisplay.textContent = "PEND - POSSIBLE";
+    } else {
+      leapSecondDisplay.textContent = "NONE PENDING";
+    }
+  }
+
+  /**
+   * @function updateDilation
+   * @description Menghitung dan memperbarui nilai relatif dilasi waktu berdasarkan rumus Lorentz.
+   */
+  function updateDilation() {
+    if (!relativeDilationDisplay) return;
+    const v = 0.9; // 90% kecepatan cahaya
+    const c = 1; // Kecepatan cahaya
+    const gamma = 1 / Math.sqrt(1 - Math.pow(v, 2) / Math.pow(c, 2));
+    relativeDilationDisplay.textContent = `${gamma.toFixed(4)}x`;
+  }
+
+  /**
+   * @function updateAtomicClockSync
+   * @description Memperbarui waktu terakhir sinkronisasi dengan atomic clock (simulasi).
+   */
+  function updateAtomicClockSync() {
+    if (!atomicClockSyncDisplay) return;
+    const msAgo = (Math.random() * 5 + 1).toFixed(1);
+    atomicClockSyncDisplay.textContent = `${msAgo}ms ago`;
+  }
+
+  /**
+   * @function handleManualSync
+   * @description Menangani klik tombol Manual Sync untuk memperbarui semua elemen.
+   */
+  function handleManualSync() {
+    updateSystemTime();
+    updateUptime();
+    updateTimezone();
+    updateGlobalSynchronization();
+    updateNTPStatus();
+    checkLeapSecond();
+    updateDilation();
+    updateAtomicClockSync();
+    manualSyncButton.classList.add("bg-cyan-600/50");
+    setTimeout(() => {
+      manualSyncButton.classList.remove("bg-cyan-600/50");
+    }, 200);
+  }
+
+  // Tambahkan event listener untuk tombol Manual Sync
+  if (manualSyncButton) {
+    manualSyncButton.addEventListener("click", handleManualSync);
+  }
+
+  // Jalankan pembaruan awal saat halaman dimuat
+  updateSystemTime();
+  updateUptime();
+  updateTimezone();
+  updateGlobalSynchronization();
+  updateNTPStatus();
+  checkLeapSecond();
+  updateDilation();
+  updateAtomicClockSync();
+
+  // Set interval untuk pembaruan periodik
+  setInterval(updateSystemTime, 1000);
+  setInterval(updateUptime, 1000);
+  setInterval(updateGlobalSynchronization, 60000); // Update setiap 60 detik
+  setInterval(updateNTPStatus, 10000);
+  setInterval(checkLeapSecond, 1000); // Sesuai kode Anda
+  setInterval(updateDilation, 1000); // Sesuai kode Anda
+  setInterval(updateAtomicClockSync, 5000);
+});
 
 
-      // =========================================================================
-      // BAGIAN 5: UPTIME & TIMEZONE (Dalam DOMContentLoaded)
-      // =========================================================================
-      document.addEventListener("DOMContentLoaded", function () {
-        // Elemen DOM untuk uptime dan timezone
-        const uptimeDisplay = document.getElementById("uptime");
-        const timezoneDisplay = document.getElementById("timezone");
 
-        // Waktu mulai aplikasi (saat script ini dieksekusi)
-        const startTime = new Date();
 
-        /**
-         * @function formatDuration
-         * @description Mengubah durasi dalam milidetik menjadi format "Xd HH:MM:SS".
-         * @param {number} ms - Durasi dalam milidetik.
-         * @returns {string} String durasi yang diformat.
-         */
-        function formatDuration(ms) {
-          let seconds = Math.floor((ms / 1000) % 60);
-          let minutes = Math.floor((ms / (1000 * 60)) % 60); // Perbaikan pembagi menit
-          let hours = Math.floor((ms / (1000 * 60 * 60)) % 24); // Perbaikan pembagi jam
-          let days = Math.floor(ms / (1000 * 60 * 60 * 24));
 
-          // Pastikan format 2 digit untuk jam, menit, detik
-          const paddedHours = String(hours).padStart(2, '0');
-          const paddedMinutes = String(minutes).padStart(2, '0');
-          const paddedSeconds = String(seconds).padStart(2, '0');
 
-          return `${days}d ${paddedHours}:${paddedMinutes}:${paddedSeconds}`;
-        }
-        /**
-         * @description Akhir dari fungsi formatDuration.
-         */
 
-        /**
-         * @function updateUptime
-         * @description Menghitung dan memperbarui tampilan uptime sistem/aplikasi.
-         */
-        function updateUptime() {
-          if (!uptimeDisplay) return; // Cek jika elemen ada
 
-          const now = new Date();
-          const diff = now - startTime; // Selisih waktu dalam milidetik
-          uptimeDisplay.textContent = formatDuration(diff);
-        }
-        /**
-         * @description Akhir dari fungsi updateUptime.
-         */
 
-        /**
-         * @function updateTimezone
-         * @description Mendapatkan dan memperbarui tampilan timezone lokal dalam format UTC offset.
-         */
-        function updateTimezone() {
-          if (!timezoneDisplay) return; // Cek jika elemen ada
 
-          // Mendapatkan offset timezone dalam menit dari UTC
-          const offsetMin = new Date().getTimezoneOffset();
-          // Hitung jam dan menit dari offset
-          const offsetHrsAbs = Math.abs(Math.floor(offsetMin / 60));
-          const offsetMinsAbs = Math.abs(offsetMin % 60);
-          // Tentukan tanda (+ atau -) berdasarkan nilai offset
-          const sign = offsetMin <= 0 ? "+" : "-"; // Perhatikan: getTimezoneOffset() positif untuk zona waktu di belakang UTC
-
-          // Format offset menjadi UTC±HH:MM
-          const formattedOffset = `UTC${sign}${String(offsetHrsAbs).padStart(2, '0')}:${String(offsetMinsAbs).padStart(2, '0')}`;
-          timezoneDisplay.textContent = formattedOffset;
-        }
-        /**
-         * @description Akhir dari fungsi updateTimezone.
-         */
-
-        // Jalankan pembaruan awal saat halaman dimuat
-        updateUptime();
-        updateTimezone();
-
-        // Set interval untuk memperbarui uptime setiap detik
-        setInterval(updateUptime, 1000);
-        // Timezone biasanya tidak berubah, jadi tidak perlu di-update terus menerus,
-        // tapi bisa dipanggil lagi jika ada event perubahan timezone (jarang terjadi).
-      }); // Akhir dari DOMContentLoaded untuk Uptime & Timezone
 
 
       // =========================================================================
@@ -9005,328 +9575,323 @@ You are asking for user language.
         }
         const scanResultLog = document.getElementById("scanResultLog"); // Ambil elemen log
 
-        // --- Event Listener untuk Tombol Security Scan ---
-        if (btnSecurityScan) {
-          btnSecurityScan.addEventListener("click", () => {
-            const span = btnSecurityScan.querySelector("span");
-            const originalText = span ? span.textContent : "Security Scan"; // Simpan teks asli
-            const icon = btnSecurityScan.querySelector("svg"); // Ambil ikon jika ada
+       // --- Event Listener untuk Tombol Security Scan ---
+if (btnSecurityScan) {
+  btnSecurityScan.addEventListener("click", () => {
+    const span = btnSecurityScan.querySelector("span");
+    const originalText = span ? span.textContent : "Security Scan"; // Simpan teks asli
 
-            // Nonaktifkan tombol dan ubah teks/ikon
-            btnSecurityScan.disabled = true;
-            if (span) span.textContent = "Scanning...";
-            if (icon) icon.classList.add("animate-spin"); // Tambahkan animasi putar jika ada ikon
+    // Nonaktifkan tombol dan ubah teks
+    btnSecurityScan.disabled = true;
+    if (span) span.textContent = "Scanning...";
 
-            // Dapatkan atau buat container progress bar
-            let progressContainer = document.getElementById("scanProgressContainer");
-            let progressBar = document.getElementById("scanProgressBar");
-            let progressText = document.getElementById("scanProgressText");
+    // Dapatkan atau buat container progress bar
+    let progressContainer = document.getElementById("scanProgressContainer");
+    let progressBar = document.getElementById("scanProgressBar");
+    let progressText = document.getElementById("scanProgressText");
 
-            if (!progressContainer) {
-              progressContainer = document.createElement("div");
-              progressContainer.id = "scanProgressContainer";
-              progressContainer.className = "mt-2 w-full"; // Margin top
-              progressContainer.innerHTML = `
-                    <div class="w-full bg-slate-800/50 rounded-full h-1.5 mb-1 dark:bg-gray-700">
-                        <div id="scanProgressBar" class="bg-gradient-to-r from-cyan-500 to-blue-500 h-1.5 rounded-full" style="width: 0%"></div>
-                    </div>
-                    <div class="text-right text-xs text-slate-500">
-                        <span id="scanProgressText">0%</span>
-                    </div>
-                `;
-              // Masukkan progress bar setelah tombol (dalam grid atau setelahnya)
-              const gridContainer = btnSecurityScan.closest(".grid");
-              if (gridContainer) {
-                gridContainer.insertAdjacentElement("afterend", progressContainer);
-              } else {
-                btnSecurityScan.insertAdjacentElement("afterend", progressContainer);
-              }
-              progressBar = document.getElementById("scanProgressBar");
-              progressText = document.getElementById("scanProgressText");
-            } else {
-              // Jika sudah ada, reset dan tampilkan
-              progressContainer.classList.remove("hidden");
-              progressBar = document.getElementById("scanProgressBar");
-              progressText = document.getElementById("scanProgressText");
-              if (progressBar) progressBar.style.width = "0%";
-              if (progressText) progressText.textContent = "0%";
-            }
+    if (!progressContainer) {
+      progressContainer = document.createElement("div");
+      progressContainer.id = "scanProgressContainer";
+      progressContainer.className = "mt-2 w-full"; // Margin top
+      progressContainer.innerHTML = `
+            <div class="w-full bg-slate-800/50 rounded-full h-1.5 mb-1 dark:bg-gray-700">
+                <div id="scanProgressBar" class="bg-gradient-to-r from-cyan-500 to-blue-500 h-1.5 rounded-full" style="width: 0%"></div>
+            </div>
+            <div class="text-right text-xs text-slate-500">
+                <span id="scanProgressText">0%</span>
+            </div>
+        `;
+      // Masukkan progress bar setelah tombol (dalam grid atau setelahnya)
+      const gridContainer = btnSecurityScan.closest(".grid");
+      if (gridContainer) {
+        gridContainer.insertAdjacentElement("afterend", progressContainer);
+      } else {
+        btnSecurityScan.insertAdjacentElement("afterend", progressContainer);
+      }
+      progressBar = document.getElementById("scanProgressBar");
+      progressText = document.getElementById("scanProgressText");
+    } else {
+      // Jika sudah ada, reset dan tampilkan
+      progressContainer.classList.remove("hidden");
+      progressBar = document.getElementById("scanProgressBar");
+      progressText = document.getElementById("scanProgressText");
+      if (progressBar) progressBar.style.width = "0%";
+      if (progressText) progressText.textContent = "0%";
+    }
 
-            // Mulai animasi progress bar (simulasi)
-            let width = 0;
-            const interval = setInterval(() => {
-              if (!progressBar || !progressText) { // Hentikan jika elemen hilang
-                clearInterval(interval);
-                return;
-              }
-              width += Math.random() * 5 + 1; // Kenaikan acak agar lebih realistis
-              width = Math.min(width, 99); // Jangan sampai 100% sebelum selesai
-              progressBar.style.width = `${width}%`;
-              progressText.textContent = `${Math.floor(width)}%`;
-              if (width >= 99 && !isElectronContext) { // Hentikan jika simulasi browser
-                clearInterval(interval);
-              }
-            }, 150); // Interval update progress
+    // Mulai animasi progress bar (simulasi)
+    let width = 0;
+    const interval = setInterval(() => {
+      if (!progressBar || !progressText) { // Hentikan jika elemen hilang
+        clearInterval(interval);
+        return;
+      }
+      width += Math.random() * 5 + 1; // Kenaikan acak agar lebih realistis
+      width = Math.min(width, 99); // Jangan sampai 100% sebelum selesai
+      progressBar.style.width = `${width}%`;
+      progressText.textContent = `${Math.floor(width)}%`;
+      if (width >= 99 && !isElectronContext) { // Hentikan jika simulasi browser
+        clearInterval(interval);
+      }
+    }, 150); // Interval update progress
 
-            // Kirim event ke Electron atau jalankan simulasi
-            if (isElectronContext && ipcRenderer) {
-              ipcRenderer.send("start-security-scan");
+    // Kirim event ke Electron atau jalankan simulasi
+    if (isElectronContext && ipcRenderer) {
+      ipcRenderer.send("start-security-scan");
 
-              // Listener HANYA SEKALI untuk hasil scan
-              ipcRenderer.once("security-scan-result", (event, result) => {
-                clearInterval(interval); // Hentikan animasi progress
+      // Listener HANYA SEKALI untuk hasil scan
+      ipcRenderer.once("security-scan-result", (event, result) => {
+        clearInterval(interval); // Hentikan animasi progress
 
-                // Set progress ke 100%
-                if (progressBar) progressBar.style.width = "100%";
-                if (progressText) progressText.textContent = "100%";
+        // Set progress ke 100%
+        if (progressBar) progressBar.style.width = "100%";
+        if (progressText) progressText.textContent = "100%";
 
-                // Tampilkan hasil di log
-                if (scanResultLog) {
-                  if (scanResultLog.querySelector(".italic")) { // Hapus pesan awal
-                    scanResultLog.innerHTML = '';
-                  }
-                  const line = document.createElement("div");
-                  line.className = `whitespace-pre-wrap ${result.success ? 'text-green-400' : 'text-red-400'}`;
-                  line.textContent = `[${new Date().toLocaleTimeString()}] ${result.message || (result.success ? 'Scan complete, no threats found.' : 'Threats detected!')}`;
-                  scanResultLog.appendChild(line);
-                  scanResultLog.scrollTop = scanResultLog.scrollHeight; // Scroll ke bawah
-                }
-
-                // Sembunyikan progress bar dan kembalikan tombol setelah jeda
-                setTimeout(() => {
-                  if (progressContainer) progressContainer.classList.add("hidden");
-                  if (span) span.textContent = originalText;
-                  if (icon) icon.classList.remove("animate-spin");
-                  btnSecurityScan.disabled = false;
-                }, 1500); // Jeda sebelum reset
-
-                // Tampilkan toast hasil
-                showToastActions(result.success ? "✅ Scan Complete" : "⚠️ Potential Threat Detected!");
-              });
-            } else {
-              // Simulasi jika bukan di Electron
-              console.warn(" security scan (browser mode)...");
-              const fakeScanSuccess = Math.random() < 0.85; // 85% simulasi Success
-              const fakeMessage = fakeScanSuccess
-                ? "No threats found during scan."
-                : "Suspicious file detected (example.dll)!";
-
-              setTimeout(() => { // Simulasi waktu scan
-                clearInterval(interval); // Hentikan progress
-
-                // Set progress ke 100%
-                if (progressBar) progressBar.style.width = "100%";
-                if (progressText) progressText.textContent = "100%";
-
-                // Tampilkan hasil di log
-                if (scanResultLog) {
-                  if (scanResultLog.querySelector(".italic")) {
-                    scanResultLog.innerHTML = '';
-                  }
-                  const line = document.createElement("div");
-                  line.className = `whitespace-pre-wrap ${fakeScanSuccess ? 'text-green-400' : 'text-red-400'}`;
-                  line.textContent = `[${new Date().toLocaleTimeString()}] ${fakeMessage}`;
-                  scanResultLog.appendChild(line);
-                  scanResultLog.scrollTop = scanResultLog.scrollHeight;
-                }
-
-                // Sembunyikan progress bar dan kembalikan tombol
-                setTimeout(() => {
-                  if (progressContainer) progressContainer.classList.add("hidden");
-                  if (span) span.textContent = originalText;
-                  if (icon) icon.classList.remove("animate-spin");
-                  btnSecurityScan.disabled = false;
-                }, 1500);
-
-                // Tampilkan toast hasil simulasi
-                showToastActions(fakeScanSuccess ? "🛡️ Scan  complete." : "⚠️  threat found!");
-
-              }, Math.random() * 2000 + 3000); // Durasi simulasi 3-5 detik
-            }
-          });
+        // Tampilkan hasil di log
+        if (scanResultLog) {
+          if (scanResultLog.querySelector(".italic")) { // Hapus pesan awal
+            scanResultLog.innerHTML = '';
+          }
+          const line = document.createElement("div");
+          line.className = `whitespace-pre-wrap ${result.success ? 'text-green-400' : 'text-red-400'}`;
+          line.textContent = `[${new Date().toLocaleTimeString()}] ${result.message || (result.success ? 'Scan complete, no threats found.' : 'Threats detected!')}`;
+          scanResultLog.appendChild(line);
+          scanResultLog.scrollTop = scanResultLog.scrollHeight; // Scroll ke bawah
         }
 
-        // --- Event Listener untuk Tombol Sync Data ---
-        if (btnSyncData) {
-          btnSyncData.addEventListener("click", () => {
-            const span = btnSyncData.querySelector("span");
-            const icon = btnSyncData.querySelector("svg");
-            const originalText = span ? span.textContent : "Sync Data";
+        // Sembunyikan progress bar dan kembalikan tombol setelah jeda
+        setTimeout(() => {
+          if (progressContainer) progressContainer.classList.add("hidden");
+          if (span) span.textContent = originalText;
+          btnSecurityScan.disabled = false;
+        }, 1500); // Jeda sebelum reset
 
-            // Ubah tampilan tombol menjadi loading
-            btnSyncData.disabled = true;
-            if (span) span.textContent = "Syncing...";
-            if (icon) icon.classList.add("animate-spin");
+        // Tampilkan toast hasil
+        showToastActions(result.success ? "✅ Scan Complete" : "⚠️ Potential Threat Detected!");
+      });
+    } else {
+      // Simulasi jika bukan di Electron
+      console.warn("Security scan (browser mode)...");
+      const fakeScanSuccess = Math.random() < 0.85; // 85% simulasi Success
+      const fakeMessage = fakeScanSuccess
+        ? "No threats found during scan."
+        : "Suspicious file detected (example.dll)!";
 
-            // Kirim event ke Electron atau simulasi
-            if (isElectronContext && ipcRenderer) {
-              ipcRenderer.send("start-data-sync");
+      setTimeout(() => { // Simulasi waktu scan
+        clearInterval(interval); // Hentikan progress
 
-              // Listener HANYA SEKALI untuk hasil sync
-              ipcRenderer.once("sync-complete", (event, result) => {
-                const success = !(result && result.success === false); // Anggap Success jika tidak ada info gagal
-                const message = result && result.message ? result.message : (success ? "Data synced successfully." : "Sync failed.");
+        // Set progress ke 100%
+        if (progressBar) progressBar.style.width = "100%";
+        if (progressText) progressText.textContent = "100%";
 
-                if (span) span.textContent = success ? "✅ Synced" : "❌ Sync Failed";
-                showToastActions(success ? "🔄 Sync successful!" : "⚠️ Sync error!");
-
-                // Kembalikan tombol setelah jeda
-                setTimeout(() => {
-                  if (span) span.textContent = originalText;
-                  if (icon) icon.classList.remove("animate-spin");
-                  btnSyncData.disabled = false;
-                }, 2000);
-              });
-
-              // Timeout fallback jika tidak ada respons dari main process
-              setTimeout(() => {
-                if (btnSyncData.disabled && span && span.textContent === "Syncing...") {
-                  console.error("Sync operation timed out.");
-                  if (span) span.textContent = "Timeout";
-                  showToastActions("⌛ Sync timed out.");
-                  setTimeout(() => {
-                    if (span) span.textContent = originalText;
-                    if (icon) icon.classList.remove("animate-spin");
-                    btnSyncData.disabled = false;
-                  }, 2000);
-                }
-              }, 15000); // Timeout 15 detik
-
-            } else {
-              // Simulasi jika bukan di Electron
-              console.warn("Data sync (browser mode)...");
-              setTimeout(() => {
-                if (span) span.textContent = "✅ Synced";
-                showToastActions("🔄 Sync complete!");
-
-                // Kembalikan tombol setelah jeda
-                setTimeout(() => {
-                  if (span) span.textContent = originalText;
-                  if (icon) icon.classList.remove("animate-spin");
-                  btnSyncData.disabled = false;
-                }, 2000);
-              }, 1500 + Math.random() * 1000); // Simulasi 1.5 - 2.5 detik
-            }
-          });
+        // Tampilkan hasil di log
+        if (scanResultLog) {
+          if (scanResultLog.querySelector(".italic")) {
+            scanResultLog.innerHTML = '';
+          }
+          const line = document.createElement("div");
+          line.className = `whitespace-pre-wrap ${fakeScanSuccess ? 'text-green-400' : 'text-red-400'}`;
+          line.textContent = `[${new Date().toLocaleTimeString()}] ${fakeMessage}`;
+          scanResultLog.appendChild(line);
+          scanResultLog.scrollTop = scanResultLog.scrollHeight;
         }
 
-        // --- Event Listener untuk Tombol Backup ---
-        if (btnBackup) {
-          btnBackup.addEventListener("click", () => {
-            const span = btnBackup.querySelector("span");
-            const originalText = span ? span.textContent : "Backup";
-            const icon = btnBackup.querySelector("svg");
+        // Sembunyikan progress bar dan kembalikan tombol
+        setTimeout(() => {
+          if (progressContainer) progressContainer.classList.add("hidden");
+          if (span) span.textContent = originalText;
+          btnSecurityScan.disabled = false;
+        }, 1500);
 
-            // Nonaktifkan tombol dan ubah teks
-            btnBackup.disabled = true;
-            if (span) span.textContent = "Backing up...";
-            if (icon) icon.classList.add("animate-spin"); // Tambahkan animasi jika ada ikon
+        // Tampilkan toast hasil simulasi
+        showToastActions(fakeScanSuccess ? "🛡️ Scan complete." : "⚠️ Threat found!");
+      }, Math.random() * 2000 + 3000); // Durasi simulasi 3-5 detik
+    }
+  });
+}
 
-            // Dapatkan atau buat progress bar untuk backup
-            let backupProgressContainer = document.getElementById("backupProgressContainer");
-            let backupProgressBarFill = document.getElementById("backupProgressBarFill");
+// --- Event Listener untuk Tombol Sync Data ---
+if (btnSyncData) {
+  btnSyncData.addEventListener("click", () => {
+    const span = btnSyncData.querySelector("span");
+    const icon = btnSyncData.querySelector("svg");
+    const originalText = span ? span.textContent : "Sync Data";
 
-            if (!backupProgressContainer) {
-              backupProgressContainer = document.createElement("div");
-              backupProgressContainer.id = "backupProgressContainer";
-              backupProgressContainer.className = "w-full h-1 bg-slate-700 mt-2 rounded overflow-hidden";
-              backupProgressContainer.innerHTML = `<div id="backupProgressBarFill" class="h-full bg-cyan-500 w-0 transition-width duration-300 ease-linear"></div>`; // ID untuk fill div
-              // Masukkan progress bar di dalam tombol atau setelahnya
-              const container = btnBackup.querySelector("div") || btnBackup; // Target di dalam tombol jika ada div
-              container.appendChild(backupProgressContainer);
-              backupProgressBarFill = document.getElementById("backupProgressBarFill");
-            } else {
-              backupProgressContainer.classList.remove("hidden");
-              backupProgressBarFill = document.getElementById("backupProgressBarFill");
-              if (backupProgressBarFill) backupProgressBarFill.style.width = "0%";
-            }
+    // Ubah tampilan tombol menjadi loading
+    btnSyncData.disabled = true;
+    if (span) span.textContent = "Syncing...";
+    if (icon) icon.classList.add("animate-spin"); // Pertahankan animasi putar
 
-            // Mulai animasi progress bar (simulasi)
-            let width = 0;
-            const interval = setInterval(() => {
-              if (!backupProgressBarFill) { // Hentikan jika elemen hilang
-                clearInterval(interval);
-                return;
-              }
-              width += Math.random() * 8 + 2; // Kenaikan acak
-              width = Math.min(width, 100);
-              backupProgressBarFill.style.width = `${width}%`;
-              if (width >= 100) {
-                clearInterval(interval);
-                // Jangan ubah teks di sini jika menunggu konfirmasi IPC
-              }
-            }, 200); // Interval update
+    // Kirim event ke Electron atau simulasi
+    if (isElectronContext && ipcRenderer) {
+      ipcRenderer.send("start-data-sync");
 
-            // Kirim event ke Electron atau simulasi
-            if (isElectronContext && ipcRenderer) {
-              ipcRenderer.send("start-backup");
+      // Listener HANYA SEKALI untuk hasil sync
+      ipcRenderer.once("sync-complete", (event, result) => {
+        const success = !(result && result.success === false); // Anggap Success jika tidak ada info gagal
+        const message = result && result.message ? result.message : (success ? "Data synced successfully." : "Sync failed.");
 
-              // Listener HANYA SEKALI untuk hasil backup
-              ipcRenderer.once("backup-complete", (event, result) => {
-                clearInterval(interval); // Hentikan animasi progress
-                if (backupProgressBarFill) backupProgressBarFill.style.width = "100%"; // Pastikan 100%
+        if (span) span.textContent = success ? "✅ Synced" : "❌ Sync Failed";
+        showToastActions(success ? "🔄 Sync successful!" : "⚠️ Sync error!");
 
-                const success = !(result && result.success === false);
-                const message = result && result.message ? result.message : (success ? "Backup completed successfully." : "Backup failed.");
+        // Kembalikan tombol setelah jeda
+        setTimeout(() => {
+          if (span) span.textContent = originalText;
+          if (icon) icon.classList.remove("animate-spin");
+          btnSyncData.disabled = false;
+        }, 2000);
+      });
 
-                if (span) span.textContent = success ? "✅ Backup Done" : "❌ Backup Failed";
-                showToastActions(success ? "💾 Backup successful!" : "⚠️ Backup error!");
-
-                // Sembunyikan progress bar dan kembalikan tombol setelah jeda
-                setTimeout(() => {
-                  if (backupProgressContainer) backupProgressContainer.classList.add("hidden");
-                  if (span) span.textContent = originalText;
-                  if (icon) icon.classList.remove("animate-spin");
-                  btnBackup.disabled = false;
-                }, 2000);
-              });
-
-              // Timeout fallback
-              setTimeout(() => {
-                if (btnBackup.disabled && span && span.textContent === "Backing up...") {
-                  console.error("Backup operation timed out.");
-                  clearInterval(interval);
-                  if (span) span.textContent = "Timeout";
-                  showToastActions("⌛ Backup timed out.");
-                  setTimeout(() => {
-                    if (backupProgressContainer) backupProgressContainer.classList.add("hidden");
-                    if (span) span.textContent = originalText;
-                    if (icon) icon.classList.remove("animate-spin");
-                    btnBackup.disabled = false;
-                  }, 2000);
-                }
-              }, 20000); // Timeout 20 detik
-
-            } else {
-              // Simulasi jika bukan di Electron
-              console.warn("Backup (browser mode)...");
-              // Tunggu interval selesai atau timeout simulasi
-              const simulationDuration = Math.random() * 2000 + 3000; // 3-5 detik
-              setTimeout(() => {
-                if (backupProgressBarFill && parseFloat(backupProgressBarFill.style.width) < 100) {
-                  clearInterval(interval); // Hentikan jika belum 100%
-                  if (backupProgressBarFill) backupProgressBarFill.style.width = "100%";
-                }
-                // Pastikan interval sudah selesai sebelum lanjut
-                setTimeout(() => {
-                  if (span) span.textContent = "✅ Backup Done";
-                  showToastActions("💾 Backup completed.");
-
-                  // Sembunyikan progress bar dan kembalikan tombol
-                  setTimeout(() => {
-                    if (backupProgressContainer) backupProgressContainer.classList.add("hidden");
-                    // Hapus progress bar dari DOM agar tidak menumpuk
-                    // if (backupProgressContainer) backupProgressContainer.remove();
-                    if (span) span.textContent = originalText;
-                    if (icon) icon.classList.remove("animate-spin");
-                    btnBackup.disabled = false;
-                  }, 2000);
-                }, 100); // Jeda kecil
-
-              }, simulationDuration);
-            }
-          });
+      // Timeout fallback jika tidak ada respons dari main process
+      setTimeout(() => {
+        if (btnSyncData.disabled && span && span.textContent === "Syncing...") {
+          console.error("Sync operation timed out.");
+          if (span) span.textContent = "Timeout";
+          showToastActions("⌛ Sync timed out.");
+          setTimeout(() => {
+            if (span) span.textContent = originalText;
+            if (icon) icon.classList.remove("animate-spin");
+            btnSyncData.disabled = false;
+          }, 2000);
         }
+      }, 15000); // Timeout 15 detik
+    } else {
+      // Simulasi jika bukan di Electron
+      console.warn("Data sync (browser mode)...");
+      setTimeout(() => {
+        if (span) span.textContent = "✅ Synced";
+        showToastActions("🔄 Sync complete!");
+
+        // Kembalikan tombol setelah jeda
+        setTimeout(() => {
+          if (span) span.textContent = originalText;
+          if (icon) icon.classList.remove("animate-spin");
+          btnSyncData.disabled = false;
+        }, 2000);
+      }, 1500 + Math.random() * 1000); // Simulasi 1.5 - 2.5 detik
+    }
+  });
+}
+
+if (btnBackup) {
+  // Event listener untuk click
+  btnBackup.addEventListener("click", () => {
+    const span = btnBackup.querySelector("span");
+    const originalText = span ? span.textContent : "Backup";
+
+    // Nonaktifkan tombol dan ubah teks
+    btnBackup.disabled = true;
+    if (span) span.textContent = "Backing up...";
+
+    // Dapatkan atau buat progress bar untuk backup
+    let backupProgressContainer = document.getElementById("backupProgressContainer");
+    let backupProgressBarFill = document.getElementById("backupProgressBarFill");
+    let backupProgressText = document.getElementById("backupProgressText");
+
+    if (!backupProgressContainer) {
+      backupProgressContainer = document.createElement("div");
+      backupProgressContainer.id = "backupProgressContainer";
+      backupProgressContainer.className = "w-full h-2 bg-slate-800/50 mt-1 rounded-full overflow-hidden relative z-10";
+      backupProgressContainer.innerHTML = `
+        <div id="backupProgressBarFill" class="h-full bg-gradient-to-r from-cyan-400 to-blue-600 w-[1%] transition-all duration-300 ease-out shadow-lg"></div>
+        <div id="backupProgressText" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-white font-medium drop-shadow">1%</div>
+      `;
+      // Masukkan progress bar di dalam tombol, tepat setelah elemen span
+      if (span) {
+        span.insertAdjacentElement("afterend", backupProgressContainer);
+      } else {
+        btnBackup.appendChild(backupProgressContainer);
+      }
+      backupProgressBarFill = document.getElementById("backupProgressBarFill");
+      backupProgressText = document.getElementById("backupProgressText");
+    } else {
+      backupProgressContainer.classList.remove("hidden");
+      if (backupProgressBarFill) backupProgressBarFill.style.width = "1%";
+      if (backupProgressText) backupProgressText.textContent = "1%";
+    }
+
+    // Mulai animasi progress bar (simulasi)
+    let width = 1; // Mulai dari 1%
+    const interval = setInterval(() => {
+      if (!backupProgressBarFill || !backupProgressText) { // Hentikan jika elemen hilang
+        clearInterval(interval);
+        return;
+      }
+      width += Math.random() * 5 + 1; // Kenaikan acak untuk realisme
+      width = Math.min(width, 100); // Maksimum 100%
+      backupProgressBarFill.style.width = `${width}%`;
+      backupProgressText.textContent = `${Math.floor(width)}%`;
+      if (width >= 100) {
+        clearInterval(interval);
+      }
+    }, 150); // Interval untuk animasi halus
+
+    // Kirim event ke Electron atau simulasi
+    if (isElectronContext && ipcRenderer) {
+      ipcRenderer.send("start-backup");
+
+      // Listener HANYA SEKALI untuk hasil backup
+      ipcRenderer.once("backup-complete", (event, result) => {
+        clearInterval(interval); // Hentikan animasi progress
+        if (backupProgressBarFill) backupProgressBarFill.style.width = "100%";
+        if (backupProgressText) backupProgressText.textContent = "100%";
+
+        const success = !(result && result.success === false);
+        const message = result && result.message ? result.message : (success ? "Backup completed successfully." : "Backup failed.");
+
+        if (span) span.textContent = success ? "✅ Backup Done" : "❌ Backup Failed";
+        showToastActions(success ? "💾 Backup successful!" : "⚠️ Backup error!");
+
+        // Hapus progress bar dari DOM setelah jeda
+        setTimeout(() => {
+          if (backupProgressContainer) backupProgressContainer.remove();
+          if (span) span.textContent = originalText;
+          btnBackup.disabled = false;
+        }, 2000);
+      });
+
+      // Timeout fallback
+      setTimeout(() => {
+        if (btnBackup.disabled && span && span.textContent === "Backing up...") {
+          console.error("Backup operation timed out.");
+          clearInterval(interval);
+          if (span) span.textContent = "Timeout";
+          if (backupProgressBarFill) backupProgressBarFill.style.width = "100%";
+          if (backupProgressText) backupProgressText.textContent = "100%";
+          showToastActions("⌛ Backup timed out.");
+          setTimeout(() => {
+            if (backupProgressContainer) backupProgressContainer.remove();
+            if (span) span.textContent = originalText;
+            btnBackup.disabled = false;
+          }, 2000);
+        }
+      }, 20000); // Timeout 20 detik
+    } else {
+      // Simulasi jika bukan di Electron
+      console.warn("Backup (browser mode)...");
+      const simulationDuration = Math.random() * 2000 + 3000; // 3-5 detik
+      setTimeout(() => {
+        if (backupProgressBarFill && parseFloat(backupProgressBarFill.style.width) < 100) {
+          clearInterval(interval); // Hentikan jika belum 100%
+          if (backupProgressBarFill) backupProgressBarFill.style.width = "100%";
+          if (backupProgressText) backupProgressText.textContent = "100%";
+        }
+        setTimeout(() => {
+          if (span) span.textContent = "✅ Backup Done";
+          showToastActions("💾 Backup completed.");
+
+          // Hapus progress bar dari DOM
+          setTimeout(() => {
+            if (backupProgressContainer) backupProgressContainer.remove();
+            if (span) span.textContent = originalText;
+            btnBackup.disabled = false;
+          }, 2000);
+        }, 100); // Jeda kecil
+      }, simulationDuration);
+    }
+  });
+}
 
         // --- Event Listener untuk Tombol Console ---
         if (btnConsole) {
@@ -12565,7 +13130,7 @@ You are asking for user language.
             .order('updated_at', { ascending: false });
           if (profilesError) {
             console.warn('[MINERS] Gagal mengambil data profiles:', profilesError);
-            minersTableBodyEl.innerHTML = `<tr><td colspan="5" class="px-5 py-3 text-center text-slate-400">Gagal memuat data miner.</td></tr>`;
+            minersTableBodyEl.innerHTML = `<tr><td colspan="5" class="px-5 py-3 text-center text-slate-400">Failed to load miner data.</td></tr>`;
             return;
           }
 
@@ -12575,7 +13140,7 @@ You are asking for user language.
             .order('created_at', { ascending: false });
           if (scansError) {
             console.warn('[MINERS] Gagal mengambil security scans:', scansError);
-            minersTableBodyEl.innerHTML = `<tr><td colspan="5" class="px-5 py-3 text-center text-slate-400">Gagal memuat data miner.</td></tr>`;
+            minersTableBodyEl.innerHTML = `<tr><td colspan="5" class="px-5 py-3 text-center text-slate-400">Failed to load miner data.</td></tr>`;
             return;
           }
 
@@ -12590,7 +13155,7 @@ You are asking for user language.
             .map(scan => {
               const profile = profiles.find(p => p.id === scan.profile_id);
               if (!profile) {
-                console.log(`[MINERS] Profile tidak ditemukan untuk scan ${scan.id}, profile_id: ${scan.profile_id}`);
+                console.log(`[MINERS] Profile not found for scan ${scan.id}, profile_id: ${scan.profile_id}`);
                 return null;
               }
 
@@ -12967,7 +13532,7 @@ You are asking for user language.
                 .order('updated_at', { ascending: false })
                 .limit(5);
               if (error) {
-                console.warn('[CONTRACT] Gagal mengambil data contract_activity:', error);
+                console.warn('[CONTRACT] Failed to retrieve contract_activity data:', error);
                 contractCallsEl.textContent = '0';
                 executionSuccessEl.innerHTML = '0<span class="text-lg text-slate-400 ml-1">%</span>';
                 contractActivityEl.innerHTML = '<div class="text-slate-400">No data available</div>';
@@ -13490,79 +14055,170 @@ You are asking for user language.
 
 
 
-      // Run security scan
       async function runSecurityScan() {
-        const userResult = await supabase.auth.getUser();
-        const user = userResult.data.user;
+    const userResult = await supabase.auth.getUser();
+    const user = userResult.data.user;
 
-        if (!user) {
-          alert("User belum login.");
-          return;
+    if (!user) {
+        alert("User belum login.");
+        return;
+    }
+
+    const userAgent = navigator.userAgent;
+    document.getElementById('userAgent').textContent = userAgent;
+
+    const devtoolsStatus = document.getElementById('devtoolsStatus');
+    const isDevToolsOpen = () => {
+        const threshold = 100;
+        const widthDiff = window.outerWidth - window.innerWidth;
+        const heightDiff = window.outerHeight - window.innerHeight;
+        return widthDiff > threshold || heightDiff > threshold;
+    };
+    const devOpen = isDevToolsOpen();
+    devtoolsStatus.innerHTML = devOpen
+        ? `<span class="w-2 h-2 mr-2 rounded-full bg-red-400 animate-pulse"></span> Closed`
+        : `<span class="w-2 h-2 mr-2 rounded-full bg-green-400 animate-pulse"></span> Open`;
+    devtoolsStatus.className = devOpen
+        ? 'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-red-900/30 text-red-400 border border-red-700/50'
+        : 'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-900/30 text-green-400 border border-green-700/50';
+
+    let fingerprint = "Unavailable";
+
+    try {
+        // Cek apakah browser mendukung WebAuthn
+        if (!('credentials' in navigator)) {
+            throw new Error("Browser tidak mendukung WebAuthn.");
         }
 
-        const userAgent = navigator.userAgent;
-        document.getElementById('userAgent').textContent = userAgent;
+        // Cek apakah kredensial pengguna sudah tersedia
+        const existingCredential = await fetch('/webauthn/check-existing', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.id })
+        });
+        const hasCredential = await existingCredential.json();
 
-        const devtoolsStatus = document.getElementById('devtoolsStatus');
-        const isDevToolsOpen = () => {
-          const threshold = 100;
-          const widthDiff = window.outerWidth - window.innerWidth;
-          const heightDiff = window.outerHeight - window.innerHeight;
-          return widthDiff > threshold || heightDiff > threshold;
-        };
-        const devOpen = isDevToolsOpen();
-        devtoolsStatus.innerHTML = devOpen
-          ? `<span class="w-2 h-2 mr-2 rounded-full bg-red-400 animate-pulse"></span> Open`
-          : `<span class="w-2 h-2 mr-2 rounded-full bg-green-400 animate-pulse"></span> Closed`;
-        devtoolsStatus.className = devOpen
-          ? 'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-red-900/30 text-red-400 border border-red-700/50'
-          : 'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-900/30 text-green-400 border border-green-700/50';
+        if (!hasCredential.exists) {
+            // Registrasi baru
+            const challenge = Uint8Array.from(window.crypto.getRandomValues(new Uint8Array(32)));
+            const publicKeyCredentialCreationOptions = {
+                challenge,
+                rp: {
+                    name: "YourAppName",
+                    id: window.location.hostname
+                },
+                user: {
+                    id: new TextEncoder().encode(user.id),
+                    name: user.email,
+                    displayName: user.email
+                },
+                pubKeyCredParams: [{ alg: -7, type: "public-key" }],
+                authenticatorSelection: {
+                    authenticatorAttachment: "platform"
+                },
+                timeout: 60000,
+                attestation: "none"
+            };
 
-        let fingerprint = "Unavailable";
-        try {
-          const fp = await FingerprintJS.load();
-          const result = await fp.get();
-          fingerprint = result.visitorId;
-          document.getElementById('deviceFingerprint').textContent = fingerprint;
-        } catch (error) {
-          document.getElementById('deviceFingerprint').textContent = "Error";
+            const credential = await navigator.credentials.create({
+                publicKey: publicKeyCredentialCreationOptions
+            });
+
+            // Kirim ke server
+            const response = await fetch('/webauthn/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: user.id,
+                    credential: credential
+                })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                fingerprint = "Biometric Registered";
+            } else {
+                fingerprint = "Registration Failed";
+            }
+        } else {
+            // Autentikasi ulang
+            const challenge = Uint8Array.from(window.crypto.getRandomValues(new Uint8Array(32)));
+            const publicKeyCredentialRequestOptions = {
+                challenge,
+                allowCredentials: [{
+                    id: Uint8Array.from(atob(hasCredential.credentialId), c => c.charCodeAt(0)),
+                    type: 'public-key',
+                    transports: ['internal']
+                }],
+                timeout: 60000
+            };
+
+            const assertion = await navigator.credentials.get({
+                publicKey: publicKeyCredentialRequestOptions
+            });
+
+            const verifyRes = await fetch('/webauthn/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: user.id,
+                    credentialId: btoa(String.fromCharCode.apply(null, new Uint8Array(assertion.rawId))),
+                    signature: btoa(String.fromCharCode.apply(null, new Uint8Array(assertion.response.signature))),
+                    clientDataJSON: btoa(String.fromCharCode.apply(null, new Uint8Array(assertion.response.clientDataJSON))),
+                    authenticatorData: btoa(String.fromCharCode.apply(null, new Uint8Array(assertion.response.authenticatorData)))
+                })
+            });
+
+            const verifyResult = await verifyRes.json();
+            if (verifyResult.success) {
+                fingerprint = "Verified with Biometric";
+            } else {
+                fingerprint = "Verification Failed";
+            }
         }
 
-        let ip = "Unknown", location = "Unknown";
-        try {
-          const res = await fetch('https://ipinfo.io/json?token=d5d6936f036032');
-          const data = await res.json();
-          ip = data.ip;
-          location = `${data.city}, ${data.region}, ${data.country}`;
-          document.getElementById('ipAddress').textContent = ip;
-          document.getElementById('locationInfo').textContent = location;
-        } catch (error) {
-          document.getElementById('ipAddress').textContent = "Error";
-          document.getElementById('locationInfo').textContent = "Error";
-        }
+        document.getElementById('deviceFingerprint').textContent = fingerprint;
 
-        const { data: existingData, error: fetchError } = await supabase
-          .from("security_scans")
-          .select("id")
-          .eq("user_id", user.id)
-          .eq("fingerprint", fingerprint)
-          .eq("ip_address", ip)
-          .limit(1);
+    } catch (error) {
+        console.error("Error WebAuthn:", error);
+        document.getElementById('deviceFingerprint').textContent = "Biometric Unavailable";
+    }
 
-        if (fetchError) {
-          console.error("Error cek duplikasi:", fetchError.message);
-          return;
-        }
+    let ip = "Unknown", location = "Unknown";
+    try {
+        const res = await fetch('https://ipinfo.io/json?token=d5d6936f036032 ');
+        const data = await res.json();
+        ip = data.ip;
+        location = `${data.city}, ${data.region}, ${data.country}`;
+        document.getElementById('ipAddress').textContent = ip;
+        document.getElementById('locationInfo').textContent = location;
+    } catch (error) {
+        document.getElementById('ipAddress').textContent = "Error";
+        document.getElementById('locationInfo').textContent = "Error";
+    }
 
-        if (existingData.length > 0) {
-          console.log("Data sudah ada. Tidak akan disimpan.");
-          return;
-        }
+    const { data: existingData, error: fetchError } = await supabase
+        .from("security_scans")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("fingerprint", fingerprint)
+        .eq("ip_address", ip)
+        .limit(1);
 
-        const logContainer = document.getElementById('securityLog');
-        const logEntry = document.createElement('div');
-        logEntry.className = "bg-slate-800/60 border border-slate-700 rounded-lg p-4 space-y-2 text-slate-300";
-        logEntry.innerHTML = `
+    if (fetchError) {
+        console.error("Error cek duplikasi:", fetchError.message);
+        return;
+    }
+
+    if (existingData.length > 0) {
+        console.log("Data sudah ada. Tidak akan disimpan.");
+        return;
+    }
+
+    const logContainer = document.getElementById('securityLog');
+    const logEntry = document.createElement('div');
+    logEntry.className = "bg-slate-800/60 border border-slate-700 rounded-lg p-4 space-y-2 text-slate-300";
+    logEntry.innerHTML = `
         <div class="flex items-center text-sm">
             <i data-lucide="monitor" class="h-4 w-4 mr-2 text-blue-400"></i>
             <span class="font-medium">User Agent:</span> <span class="ml-2 truncate">${userAgent}</span>
@@ -13584,48 +14240,45 @@ You are asking for user language.
             <span class="font-medium">Location:</span> <span class="ml-2">${location}</span>
         </div>
     `;
-        logContainer.prepend(logEntry);
-        lucide.createIcons();
+    logContainer.prepend(logEntry);
+    lucide.createIcons();
 
-        const email = user.email;
-        const { data: insertData, error } = await supabase
-          .from("security_scans")
-          .insert([
+    const email = user.email;
+    const { data: insertData, error } = await supabase
+        .from("security_scans")
+        .insert([
             {
-              user_id: user.id,
-              email: email,
-              user_agent: userAgent,
-              devtools_open: devOpen,
-              fingerprint: fingerprint,
-              ip_address: ip,
-              location: location,
-              created_at: new Date().toISOString()
+                user_id: user.id,
+                email: email,
+                user_agent: userAgent,
+                devtools_open: devOpen,
+                fingerprint: fingerprint,
+                ip_address: ip,
+                location: location,
+                created_at: new Date().toISOString()
             }
-          ]);
+        ]);
 
-        if (error) {
-          console.error("Gagal simpan ke Supabase:", error.message, error.details);
-        } else {
-          console.log("✅ Data berhasil dikirim ke Supabase.");
-        }
-      }
+    if (error) {
+        console.error("Gagal simpan ke Supabase:", error.message, error.details);
+    } else {
+        console.log("✅ Data berhasil dikirim ke Supabase.");
+    }
+}
 
-      document.getElementById('runSecurityScanBtn').addEventListener('click', runSecurityScan);
+document.getElementById('runSecurityScanBtn').addEventListener('click', runSecurityScan);
+document.getElementById('clearSecurityLogBtn').addEventListener('click', () => {
+    document.getElementById('securityLog').innerHTML = '';
+});
 
-      document.getElementById('clearSecurityLogBtn').addEventListener('click', () => {
-        document.getElementById('securityLog').innerHTML = '';
-      });
-
-      // Fungsi untuk menyembunyikan sebagian alamat wallet
-      function maskWalletAddress(address) {
-        if (!address) return '';
-        const visibleChars = 6;
-        return address.length > visibleChars * 2
-          ? `${address.slice(0, visibleChars)}...${address.slice(-visibleChars)}`
-          : address;
-      }
-      //end of security scan
-
+function maskWalletAddress(address) {
+    if (!address) return '';
+    const visibleChars = 6;
+    return address.length > visibleChars * 2
+        ? `${address.slice(0, visibleChars)}...${address.slice(-visibleChars)}`
+        : address;
+}
+//end of security scan
 
 
 
@@ -13995,32 +14648,42 @@ You are asking for user language.
         });
 
         const sanitizedContent = sanitizeHTML(msg.content);
+adminMessageEl.innerHTML = `
+  <div class="flex items-start gap-4 p-4 bg-gradient-to-br from-slate-900/40 to-slate-950/30 rounded-xl border border-slate-800/50 shadow-lg shadow-slate-900/20">
+    <div class="flex-shrink-0 p-2.5 bg-gradient-to-br from-slate-700 to-slate-800 rounded-full shadow-md">
+      <i data-lucide="shield-alert" class="h-6 w-6 text-white"></i>
+    </div>
+    <div class="flex-1 space-y-2">
+      <div class="flex items-center justify-between">
+        <div class="font-medium text-white/90 text-lg flex items-center gap-2">
+          <i data-lucide="verified" class="h-5 w-5 text-cyan-300"></i>
+          <span class="bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-slate-200">Official Announcement</span>
+        </div>
+        <div class="text-xs text-cyan-200/80 flex items-center bg-slate-900/30 px-2 py-1 rounded-full">
+          <i data-lucide="clock" class="h-3 w-3 mr-1.5"></i>
+          <span>${timestamp}</span>
+        </div>
+      </div>
+      <div class="pl-1 text-white/90 leading-relaxed text-base font-light space-y-2">
+        ${sanitizedContent.split('\n').map(p => `<p class="flex items-start gap-2"><i data-lucide="chevron-right" class="h-4 w-4 mt-1 flex-shrink-0 text-cyan-300/80"></i><span>${p}</span></p>`).join('')}
+      </div>
+      <div class="pt-2 flex items-center gap-3 text-xs text-cyan-300/70">
+        <div class="flex items-center">
+          <i data-lucide="info" class="h-3 w-3 mr-1.5"></i>
+          <span>Admin Team</span>
+        </div>
+        <a href="https://twitter.com/aqula_app " target="_blank" rel="noopener noreferrer" class="flex items-center">
+          <i data-lucide="twitter" class="h-3 w-3 mr-1.5"></i>
+          <span>@aqula_app</span>
+        </a>
+        <a href="https://www.youtube.com/@aqulaapp" target="_blank" rel="noopener noreferrer" class="flex items-center">
+          <i data-lucide="youtube" class="h-3 w-3 mr-1.5 text-red-500"></i>
+          <span>@aqulaapp</span>
+        </a>
+      </div>
+    </div>
+  </div>`;
 
-        adminMessageEl.innerHTML = `
-    <div class="flex items-start gap-4 p-4 bg-gradient-to-br from-slate-900/40 to-slate-950/30 rounded-xl border border-slate-800/50 shadow-lg shadow-slate-900/20">
-        <div class="flex-shrink-0 p-2.5 bg-gradient-to-br from-slate-700 to-slate-800 rounded-full shadow-md">
-            <i data-lucide="shield-alert" class="h-6 w-6 text-white"></i>
-        </div>
-        <div class="flex-1 space-y-2">
-            <div class="flex items-center justify-between">
-                <div class="font-medium text-white/90 text-lg flex items-center gap-2">
-                    <i data-lucide="verified" class="h-5 w-5 text-cyan-300"></i>
-                    <span class="bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-slate-200">Official Announcement</span>
-                </div>
-                <div class="text-xs text-cyan-200/80 flex items-center bg-slate-900/30 px-2 py-1 rounded-full">
-                    <i data-lucide="clock" class="h-3 w-3 mr-1.5"></i>
-                    <span>${timestamp}</span>
-                </div>
-            </div>
-            <div class="pl-1 text-white/90 leading-relaxed text-base font-light space-y-2">
-                ${sanitizedContent.split('\n').map(p => `<p class="flex items-start gap-2"><i data-lucide="chevron-right" class="h-4 w-4 mt-1 flex-shrink-0 text-cyan-300/80"></i><span>${p}</span></p>`).join('')}
-            </div>
-            <div class="pt-2 flex items-center gap-3 text-xs text-cyan-300/70">
-                <div class="flex items-center"><i data-lucide="info" class="h-3 w-3 mr-1.5"></i><span>Admin Team</span></div>
-                <div class="flex items-center"><i data-lucide="mail" class="h-3 w-3 mr-1.5"></i><span>aqula@gmail.com</span></div>
-            </div>
-        </div>
-    </div>`;
 
         adminMessages.appendChild(adminMessageEl);
         lucide.createIcons();
@@ -14376,8 +15039,8 @@ You are asking for user language.
               popup.className = "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50";
               popup.innerHTML = `
                     <div class="bg-slate-800 p-4 rounded-lg shadow-lg w-80">
-                        <h3 class="text-lg font-semibold text-white mb-2">Laporkan Pesan</h3>
-                        <textarea id="reportReason" class="w-full h-24 p-2 bg-slate-700 text-white rounded mb-4" placeholder="Masukkan alasan pelaporan..."></textarea>
+                        <h3 class="text-lg font-semibold text-white mb-2">Report Message</h3>
+                        <textarea id="reportReason" class="w-full h-24 p-2 bg-slate-700 text-white rounded mb-4" placeholder="Enter the reason for reporting...."></textarea>
                         <div class="flex justify-end space-x-2">
                             <button id="cancelReport" class="px-4 py-2 bg-slate-600 text-white rounded hover:bg-slate-500">cancel</button>
                             <button id="submitReport" class="px-4 py-2 bg-rose-600 text-white rounded hover:bg-rose-500">Send</button>
@@ -16093,6 +16756,180 @@ You are asking for user language.
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Inisialisasi container dan ukuran
+  const container = document.getElementById('particleContainer');
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+
+  // Membuat scene tanpa background
+  const scene = new THREE.Scene();
+  // Optional: tambahkan fog lembut jika diperlukan
+  // scene.fog = new THREE.FogExp2(0x0f172a, 0.005); // komentari jika tidak dibutuhkan
+
+  // Kamera
+  const camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
+  camera.position.set(0, 0, 50);
+
+  // Renderer dengan transparansi aktif
+  const renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: true, // ← Penting untuk transparansi
+    powerPreference: "high-performance"
+  });
+  renderer.setSize(width, height);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  container.appendChild(renderer.domElement);
+
+  // Pencahayaan minimal (opsional)
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+  scene.add(ambientLight);
+
+  const directionalLight = new THREE.DirectionalLight(0x7dd3fc, 0.8);
+  directionalLight.position.set(1, 1, 1);
+  scene.add(directionalLight);
+
+  // Konfigurasi jumlah partikel
+  const particleCount = 2500;
+  const geometry = new THREE.BufferGeometry();
+  const positions = new Float32Array(particleCount * 3);
+  const colors = new Float32Array(particleCount * 3);
+  const sizes = new Float32Array(particleCount);
+
+  // Palet warna biru
+  const colorPalette = [
+    new THREE.Color(0x7dd3fc),
+    new THREE.Color(0x38bdf8), 
+    new THREE.Color(0x0ea5e9),
+    new THREE.Color(0x0284c7)
+  ];
+
+  // Path huruf A-Q-U-L-A
+  const letterPaths = {
+    'A': [ [-8,-10,0], [-4,10,0], [0,-10,0], [4,10,0], [8,-10,0], [-6,0,0], [6,0,0] ],
+    'Q': [ [0,10,0], [6,8,0], [8,4,0], [8,-4,0], [6,-8,0], [0,-10,0], [-6,-8,0], [-8,-4,0], [-8,4,0], [-6,8,0], [4,-6,0], [8,-10,0] ],
+    'U': [ [-8,10,0], [-8,-4,0], [-6,-8,0], [-2,-10,0], [2,-10,0], [6,-8,0], [8,-4,0], [8,10,0] ],
+    'L': [ [-8,10,0], [-8,-10,0], [8,-10,0] ],
+    'A2': [ [-8,-10,0], [-4,10,0], [0,-10,0], [4,10,0], [8,-10,0], [-6,0,0], [6,0,0] ]
+  };
+
+  // Posisi horizontal tiap huruf
+  const letterPositions = { 'A': -44, 'Q': -22, 'U': 0, 'L': 22, 'A2': 44 };
+
+  // Distribusi partikel pada path huruf
+  let pIndex = 0;
+  const particlesPerLetter = Math.floor(particleCount / 5);
+  const particleDensity = 3;
+
+  for (const [letter, path] of Object.entries(letterPaths)) {
+    for (let i = 0; i < particlesPerLetter && pIndex < particleCount; i++) {
+      const segment = i % (path.length - 1);
+      const progress = (i % particleDensity) / particleDensity;
+
+      const start = path[segment];
+      const end = path[segment + 1] || path[0];
+
+      positions[pIndex * 3] = THREE.MathUtils.lerp(start[0] + letterPositions[letter], end[0] + letterPositions[letter], progress) + (Math.random() - 0.5) * 1.5;
+      positions[pIndex * 3 + 1] = THREE.MathUtils.lerp(start[1], end[1], progress) + (Math.random() - 0.5) * 1.5;
+      positions[pIndex * 3 + 2] = THREE.MathUtils.lerp(start[2], end[2], progress) + (Math.random() - 0.5) * 8;
+
+      const colorIndex = Math.floor(pIndex / (particleCount / colorPalette.length)) % colorPalette.length;
+      colors[pIndex * 3] = colorPalette[colorIndex].r;
+      colors[pIndex * 3 + 1] = colorPalette[colorIndex].g;
+      colors[pIndex * 3 + 2] = colorPalette[colorIndex].b;
+
+      sizes[pIndex] = Math.random() * 0.6 + 0.8;
+
+      pIndex++;
+    }
+  }
+
+  // Set atribut geometri
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+  // Material partikel
+  const material = new THREE.PointsMaterial({
+    size: 1.2,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.95,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true,
+    alphaTest: 0.1
+  });
+
+  const particles = new THREE.Points(geometry, material);
+  scene.add(particles);
+
+  // Variabel animasi
+  let time = 0;
+  const rotationSpeed = 0.15;
+
+  // Loop animasi
+  function animate() {
+    requestAnimationFrame(animate);
+    time += 0.01;
+
+    particles.rotation.y = Math.sin(time * rotationSpeed) * 0.15;
+    particles.rotation.x = Math.cos(time * rotationSpeed * 0.8) * 0.1;
+
+    const positions = geometry.attributes.position.array;
+    for (let i = 0; i < positions.length; i += 3) {
+      positions[i + 2] += Math.sin(time + i * 0.01) * 0.1;
+    }
+    geometry.attributes.position.needsUpdate = true;
+
+    renderer.render(scene, camera);
+  }
+
+  // Resize handler
+  function onWindowResize() {
+    camera.aspect = container.clientWidth / container.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(container.clientWidth, container.clientHeight);
+  }
+
+  window.addEventListener('resize', onWindowResize);
+  animate();
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
       
 
       // Cegah zoom pakai Ctrl/Cmd + Scroll Mouse
@@ -16160,199 +16997,558 @@ You are asking for user language.
 
 
 
-      //start aqula visual
-      document.addEventListener('DOMContentLoaded', () => {
-        // Initialize Three.js scene
-        const container = document.getElementById('particleContainer');
-        const width = container.clientWidth;
-        const height = container.clientHeight;
 
-        // Create scene with subtle fog
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0f172a);
-        scene.fog = new THREE.FogExp2(0x0f172a, 0.005);
 
-        // Create camera with optimal view
-        const camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
-        camera.position.set(0, 0, 50);
 
-        // Create high-quality renderer
-        const renderer = new THREE.WebGLRenderer({
-          antialias: true,
-          powerPreference: "high-performance"
-        });
-        renderer.setSize(width, height);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        container.appendChild(renderer.domElement);
 
-        // Lighting setup for clarity
-        const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
-        scene.add(ambientLight);
 
-        const directionalLight = new THREE.DirectionalLight(0x7dd3fc, 0.8);
-        directionalLight.position.set(1, 1, 1);
-        scene.add(directionalLight);
 
-        // Create particle system
-        const particleCount = 2500;
-        const geometry = new THREE.BufferGeometry();
-        const positions = new Float32Array(particleCount * 3);
-        const colors = new Float32Array(particleCount * 3);
-        const sizes = new Float32Array(particleCount);
 
-        // Color palette (blue gradient)
-        const colorPalette = [
-          new THREE.Color(0x7dd3fc),
-          new THREE.Color(0x38bdf8),
-          new THREE.Color(0x0ea5e9),
-          new THREE.Color(0x0284c7)
-        ];
 
-        // Define clear letter paths for A-Q-U-L-A
-        const letterPaths = {
-          'A': [
-            [-8, -10, 0], [-4, 10, 0], [0, -10, 0], [4, 10, 0], [8, -10, 0], // Outer shape
-            [-6, 0, 0], [6, 0, 0] // Crossbar (less prominent)
-          ],
-          'Q': [
-            [0, 10, 0], [6, 8, 0], [8, 4, 0], [8, -4, 0], [6, -8, 0], // Main circle
-            [0, -10, 0], [-6, -8, 0], [-8, -4, 0], [-8, 4, 0], [-6, 8, 0],
-            [4, -6, 0], [8, -10, 0] // Tail
-          ],
-          'U': [
-            [-8, 10, 0], [-8, -4, 0], [-6, -8, 0], [-2, -10, 0], // Left curve
-            [2, -10, 0], [6, -8, 0], [8, -4, 0], [8, 10, 0]  // Right curve
-          ],
-          'L': [
-            [-8, 10, 0], [-8, -10, 0], [8, -10, 0] // Simple L shape
-          ],
-          'A2': [
-            [-8, -10, 0], [-4, 10, 0], [0, -10, 0], [4, 10, 0], [8, -10, 0], // Outer shape
-            [-6, 0, 0], [6, 0, 0] // Crossbar (less prominent)
-          ]
-        };
 
-        // Position letters with good spacing
-        const letterPositions = {
-          'A': -44,
-          'Q': -22,
-          'U': 0,
-          'L': 22,
-          'A2': 44
-        };
 
-        // Create particles along letter paths (ensuring readability)
-        let pIndex = 0;
-        const particlesPerLetter = particleCount / 5;
-        const particleDensity = 3; // Higher density for clearer letters
 
-        for (const [letter, path] of Object.entries(letterPaths)) {
-          for (let i = 0; i < particlesPerLetter && pIndex < particleCount; i++) {
-            // Distribute particles evenly along path
-            const segment = i % (path.length - 1);
-            const progress = (i % particleDensity) / particleDensity;
 
-            const start = path[segment];
-            const end = path[segment + 1] || path[0];
 
-            // Position with slight randomness but constrained to maintain shape
-            positions[pIndex * 3] = THREE.MathUtils.lerp(
-              start[0] + letterPositions[letter],
-              end[0] + letterPositions[letter],
-              progress
-            ) + (Math.random() - 0.5) * 1.5;
 
-            positions[pIndex * 3 + 1] = THREE.MathUtils.lerp(
-              start[1],
-              end[1],
-              progress
-            ) + (Math.random() - 0.5) * 1.5;
 
-            positions[pIndex * 3 + 2] = THREE.MathUtils.lerp(
-              start[2],
-              end[2],
-              progress
-            ) + (Math.random() - 0.5) * 8;
 
-            // Color based on letter position
-            const colorIndex = Math.floor(pIndex / (particleCount / colorPalette.length)) % colorPalette.length;
-            colors[pIndex * 3] = colorPalette[colorIndex].r;
-            colors[pIndex * 3 + 1] = colorPalette[colorIndex].g;
-            colors[pIndex * 3 + 2] = colorPalette[colorIndex].b;
 
-            // Slightly larger particles for better visibility
-            sizes[pIndex] = Math.random() * 0.6 + 0.8;
 
-            pIndex++;
+
+
+
+let loggedInUserEmail = null;
+
+async function getCurrentUserEmail() {
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error) {
+      console.error('Gagal mendapatkan email pengguna:', error.message);
+      return null;
+    }
+    if (!user || !user.email) {
+      console.error('Tidak ada email pengguna yang ditemukan');
+      return null;
+    }
+    return user.email;
+  } catch (err) {
+    console.error('Error dalam getCurrentUserEmail:', err);
+    return null;
+  }
+}
+
+// Fungsi baru untuk mengambil PIN dari tabel profiles di Supabase
+async function getUserPin() {
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('pin')
+      .eq('email', loggedInUserEmail)
+      .single();
+    if (error) {
+      console.error('Gagal mengambil PIN:', error.message);
+      showToast('Error', 'Failed to load user PIN.', 'destructive');
+      return null;
+    }
+    if (!data || !data.pin) {
+      console.error('PIN tidak ditemukan untuk email:', loggedInUserEmail);
+      showToast('Error', 'User PIN not found.', 'destructive');
+      return null;
+    }
+    return data.pin;
+  } catch (err) {
+    console.error('Error dalam getUserPin:', err);
+    showToast('Error', 'Error retrieving PIN.', 'destructive');
+    return null;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  loggedInUserEmail = await getCurrentUserEmail();
+  if (!loggedInUserEmail) {
+    console.error('Cannot proceed without user email');
+    showToast('Error', 'Please login again.', 'destructive');
+    return;
+  }
+
+  const dayTaskModal = document.getElementById('dayTaskModal');
+  const closeDayTaskModal = document.getElementById('closeDayTaskModal');
+  const closeDayTaskModalBottom = document.getElementById('closeDayTaskModalBottom');
+  const claimButtons = document.querySelectorAll('.claim-btn');
+  const visitButtons = document.querySelectorAll('.visit-btn');
+
+  function showModal() {
+    if (dayTaskModal) dayTaskModal.classList.remove('hidden');
+  }
+
+  function hideModal() {
+    if (dayTaskModal) dayTaskModal.classList.add('hidden');
+  }
+
+  if (closeDayTaskModal) closeDayTaskModal.addEventListener('click', hideModal);
+  if (closeDayTaskModalBottom) closeDayTaskModalBottom.addEventListener('click', hideModal);
+
+  if (dayTaskModal) {
+    dayTaskModal.addEventListener('click', (e) => {
+      if (e.target === dayTaskModal) {
+        hideModal();
+      }
+    });
+  }
+
+  async function checkBoosterPurchased() {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('booster, points, youtube_code, twitter_code, youtube_visited, twitter_visited')
+        .eq('email', loggedInUserEmail);
+
+      if (error) {
+        console.error('Gagal mengambil profil pengguna:', error.message);
+        showToast('Error', 'Failed to load profile data.', 'destructive');
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        console.error('Tidak ada profil ditemukan untuk email:', loggedInUserEmail);
+        showToast('Error', 'User profile not found.', 'destructive');
+        return;
+      }
+
+      const userProfile = data[0];
+      const boosterClaimBtn = document.querySelector('.claim-btn[data-task="buy-booster"]');
+      if (boosterClaimBtn && userProfile.booster && userProfile.booster !== 'NULL' && userProfile.booster !== '') {
+        boosterClaimBtn.disabled = false;
+
+        boosterClaimBtn.addEventListener('click', async () => {
+          const today = new Date().toISOString().split('T')[0];
+          const { data: taskCompleted, error: taskError } = await supabase
+            .from('user_task_completion')
+            .select('completed')
+            .eq('user_id', loggedInUserEmail)
+            .eq('task_type', 'buy-booster')
+            .eq('date', today);
+
+          if (taskError) {
+            console.error('Error saat cek task completion:', taskError.message);
+            showToast('Error', 'Failed to check the task status.', 'destructive');
+            return;
           }
-        }
 
-        // Set geometry attributes
-        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-        geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-
-        // Create particle material with clear visibility
-        const material = new THREE.PointsMaterial({
-          size: 1.2,
-          vertexColors: true,
-          transparent: true,
-          opacity: 0.95,
-          blending: THREE.AdditiveBlending,
-          sizeAttenuation: true,
-          alphaTest: 0.1
-        });
-
-        const particles = new THREE.Points(geometry, material);
-        scene.add(particles);
-
-        // Animation variables
-        let time = 0;
-        const rotationSpeed = 0.15;
-
-        // Animation loop with constrained movement
-        function animate() {
-          requestAnimationFrame(animate);
-          time += 0.01;
-
-          // Gentle rotation that doesn't obscure letters
-          particles.rotation.y = Math.sin(time * rotationSpeed) * 0.15;
-          particles.rotation.x = Math.cos(time * rotationSpeed * 0.8) * 0.1;
-
-          // Subtle floating movement while maintaining shape
-          const positions = geometry.attributes.position.array;
-          for (let i = 0; i < positions.length; i += 3) {
-            // Only modify Z position for depth movement
-            positions[i + 2] += Math.sin(time + i * 0.01) * 0.1;
+          if (taskCompleted && taskCompleted.length > 0 && taskCompleted[0].completed) {
+            boosterClaimBtn.disabled = true;
+            boosterClaimBtn.innerHTML = '<i data-lucide="check-circle" class="h-3.5 w-3.5"></i><span>Done</span>';
+            boosterClaimBtn.classList.remove('bg-cyan-600/90', 'hover:bg-cyan-600');
+            boosterClaimBtn.classList.add('bg-emerald-600/90');
+            if (window.lucide) lucide.createIcons();
+            return;
           }
-          geometry.attributes.position.needsUpdate = true;
 
-          renderer.render(scene, camera);
+          const newPoints = (userProfile.points || 0) + 10000;
+          const { error: updateError } = await supabase
+            .from('profiles')
+            .update({ points: newPoints })
+            .eq('email', loggedInUserEmail);
+
+          if (updateError) {
+            console.error('Gagal update points:', updateError.message);
+            showToast('Error', 'Failed to update points.', 'destructive');
+            return;
+          }
+
+          boosterClaimBtn.disabled = true;
+          boosterClaimBtn.innerHTML = '<i data-lucide="check-circle" class="h-3.5 w-3.5"></i><span>Done</span>';
+          boosterClaimBtn.classList.remove('bg-cyan-600/90', 'hover:bg-cyan-600');
+          boosterClaimBtn.classList.add('bg-emerald-600/90');
+
+          const { error: insertError } = await supabase
+            .from('user_task_completion')
+            .insert({ 
+              user_id: loggedInUserEmail, 
+              task_type: 'buy-booster', 
+              completed: true, 
+              date: today 
+            });
+
+          if (insertError) {
+            console.error('Gagal insert task completion:', insertError.message);
+            showToast('Error', 'Failed to save task status.', 'destructive');
+            return;
+          }
+
+          showToast('Success', 'Booster task completed successfully!', 'success');
+          if (window.lucide) lucide.createIcons();
+        });
+      }
+    } catch (err) {
+      console.error('Error dalam checkBoosterPurchased:', err);
+      showToast('Error', 'An error occurred while loading the booster task.', 'destructive');
+    }
+  }
+
+  async function generateAndUpdateCode(userEmail, taskPrefix) {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select(`${taskPrefix}_code, ${taskPrefix}_visited`)
+        .eq('email', userEmail);
+
+      if (error) {
+        console.error('Gagal mengambil profil:', error.message);
+        showToast('Error', 'Failed to load profile data.', 'destructive');
+        return null;
+      }
+
+      if (!data || data.length === 0) {
+        console.error('Tidak ada profil ditemukan untuk email:', userEmail);
+        showToast('Error', 'User profile not found.', 'destructive');
+        return null;
+      }
+
+      const userProfile = data[0];
+      let code = userProfile[`${taskPrefix}_code`];
+      let visited = userProfile[`${taskPrefix}_visited`];
+
+      if (!code || !visited || visited === false) {
+        code = Math.floor(100000 + Math.random() * 900000).toString();
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ 
+            [`${taskPrefix}_code`]: code,
+            [`${taskPrefix}_visited`]: true 
+          })
+          .eq('email', userEmail);
+        if (updateError) {
+          console.error('Gagal memperbarui kode atau status visited:', updateError.message);
+          showToast('Error', 'Failed to update the verification code.', 'destructive');
+          return null;
         }
+      }
 
-        // Handle window resize
-        function onWindowResize() {
-          camera.aspect = container.clientWidth / container.clientHeight;
-          camera.updateProjectionMatrix();
-          renderer.setSize(container.clientWidth, container.clientHeight);
+      return { code, visited };
+    } catch (err) {
+      console.error('Error dalam generateAndUpdateCode:', err);
+      showToast('Error', 'An error occurred while generating the code.', 'destructive');
+      return null;
+    }
+  }
+
+  async function markTaskVisited(taskPrefix) {
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ [`${taskPrefix}_visited`]: true })
+        .eq('email', loggedInUserEmail);
+      if (error) {
+        console.error('Gagal menandai visited untuk taskPrefix:', taskPrefix, error.message);
+        showToast('Error', 'Failed to mark the visit.', 'destructive');
+      }
+    } catch (err) {
+      console.error('Error dalam markTaskVisited:', err);
+      showToast('Error', 'An error occurred while marking the visit.', 'destructive');
+    }
+  }
+
+  function showCodeInUI(taskPrefix, code) {
+    const codeDisplayId = taskPrefix === 'youtube' ? 'youtubeCodeDisplay' : 'twitterCodeDisplay';
+    const codeDisplay = document.getElementById(codeDisplayId);
+    const codeInputContainer = codeDisplay.parentElement.querySelector('.code-input-container');
+
+    if (codeDisplay) {
+      codeDisplay.querySelector('.code-text').textContent = code;
+      codeDisplay.classList.remove('hidden');
+
+      const copyBtn = codeDisplay.querySelector('.copy-btn');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', () => {
+          navigator.clipboard.writeText(code).then(() => {
+            showToast('Success', 'Code copied successfully!', 'success');
+          }).catch(err => {
+            console.error('Gagal menyalin kode:', err);
+            showToast('Error', 'Failed to copy the code!', 'destructive');
+          });
+        });
+      }
+    } else {
+      console.error(`Elemen ${codeDisplayId} tidak ditemukan di DOM`);
+      showToast('Error', 'Failed to display the verification code.', 'destructive');
+    }
+
+    if (codeInputContainer) {
+      codeInputContainer.classList.remove('hidden');
+      const inputField = codeInputContainer.querySelector('.code-input');
+      if (inputField) inputField.focus();
+    } else {
+      console.error(`Elemen code-input-container untuk ${taskPrefix} tidak ditemukan di DOM`);
+      showToast('Error', 'Failed to display verification code input.', 'destructive');
+    }
+  }
+
+  claimButtons.forEach(button => {
+    const taskType = button.dataset.task;
+    if (taskType === 'buy-booster') return;
+
+    let taskPrefix;
+    switch (taskType) {
+      case 'youtube-subscribe':
+        taskPrefix = 'youtube';
+        break;
+      case 'twitter-follow':
+        taskPrefix = 'twitter';
+        break;
+      default:
+        taskPrefix = '';
+    }
+
+    if (!taskPrefix) return;
+
+    generateAndUpdateCode(loggedInUserEmail, taskPrefix).then(result => {
+      if (!result) return;
+
+      const { code: correctCode, visited: hasVisited } = result;
+
+      const today = new Date().toISOString().split('T')[0];
+      supabase
+        .from('user_task_completion')
+        .select('completed')
+        .eq('user_id', loggedInUserEmail)
+        .eq('task_type', taskType)
+        .eq('date', today)
+        .then(({ data: taskCompleted, error: taskError }) => {
+          if (taskError) {
+            console.error('Error saat cek task completion:', taskError.message);
+            showToast('Error', 'Failed to check task status.', 'destructive');
+            return;
+          }
+
+          if (taskCompleted && taskCompleted.length > 0 && taskCompleted[0].completed) {
+            button.disabled = true;
+            button.innerHTML = '<i data-lucide="check-circle" class="h-3.5 w-3.5"></i><span>Done</span>';
+            button.classList.remove('bg-red-600/90', 'hover:bg-red-600', 'bg-blue-600/90', 'hover:bg-blue-600');
+            button.classList.add('bg-emerald-600/90');
+            if (window.lucide) lucide.createIcons();
+            return;
+          }
+
+          button.addEventListener('click', function() {
+            if (!hasVisited) {
+              showToast('Warning', 'Visit the link first to get the code!', 'warning');
+              return;
+            }
+
+            const inputContainer = this.parentElement.querySelector('.code-input-container');
+            if (inputContainer) {
+              console.log('Claim button clicked, showing input container');
+              this.classList.add('hidden');
+              inputContainer.classList.remove('hidden');
+              const inputField = inputContainer.querySelector('.code-input');
+              if (inputField) inputField.focus();
+
+              const okBtn = inputContainer.querySelector('.ok-btn');
+              if (okBtn) {
+                console.log('OK button found, attaching event listener');
+                okBtn.onclick = null;
+                okBtn.addEventListener('click', async () => {
+                  console.log('OK button clicked');
+                  const enteredCode = inputField.value.trim();
+                  if (enteredCode === correctCode) {
+                    console.log('Correct code entered, checking task completion');
+                    const { data: taskCompleted, error: taskError } = await supabase
+                      .from('user_task_completion')
+                      .select('completed')
+                      .eq('user_id', loggedInUserEmail)
+                      .eq('task_type', taskType)
+                      .eq('date', today);
+
+                    if (taskError) {
+                      console.error('Error saat cek task completion:', taskError.message);
+                      showToast('Error', 'Failed to check task status.', 'destructive');
+                      return;
+                    }
+
+                    if (taskCompleted && taskCompleted.length > 0 && taskCompleted[0].completed) {
+                      showToast('Warning', 'This task has been completed today!', 'warning');
+                      inputContainer.classList.add('hidden');
+                      this.classList.remove('hidden');
+                      this.disabled = true;
+                      this.innerHTML = '<i data-lucide="check-circle" class="h-3.5 w-3.5"></i><span>Done</span>';
+                      this.classList.remove('bg-red-600/90', 'hover:bg-red-600', 'bg-blue-600/90', 'hover:bg-blue-600');
+                      this.classList.add('bg-emerald-600/90');
+                      if (window.lucide) lucide.createIcons();
+                      return;
+                    }
+
+                    console.log('Updating points and task completion');
+                    inputContainer.classList.add('hidden');
+                    this.classList.remove('hidden');
+                    this.disabled = true;
+                    this.innerHTML = '<i data-lucide="check-circle" class="h-3.5 w-3.5"></i><span>Done</span>';
+                    this.classList.remove('bg-red-600/90', 'hover:bg-red-600', 'bg-blue-600/90', 'hover:bg-blue-600');
+                    this.classList.add('bg-emerald-600/90');
+
+                    const { data: userProfile, error: profileError } = await supabase
+                      .from('profiles')
+                      .select('points')
+                      .eq('email', loggedInUserEmail);
+                    if (profileError) {
+                      console.error('Error saat ambil points:', profileError.message);
+                      showToast('Error', 'Failed to load point data.', 'destructive');
+                      return;
+                    }
+
+                    if (userProfile && userProfile.length > 0) {
+                      const newPoints = (userProfile[0].points || 0) + (taskType === 'youtube-subscribe' || taskType === 'twitter-follow' ? 1000 : 0);
+                      const { error: updateError } = await supabase
+                        .from('profiles')
+                        .update({ points: newPoints })
+                        .eq('email', loggedInUserEmail);
+                      if (updateError) {
+                        console.error('Gagal update points:', updateError.message);
+                        showToast('Error', 'Failed to update points.', 'destructive');
+                        return;
+                      }
+                    }
+
+                    const { error: insertError } = await supabase
+                      .from('user_task_completion')
+                      .insert({ 
+                        user_id: loggedInUserEmail, 
+                        task_type: taskType, 
+                        completed: true, 
+                        date: today 
+                      });
+                    if (insertError) {
+                      console.error('Gagal insert task completion:', insertError.message);
+                      showToast('Error', 'Failed to save task status.', 'destructive');
+                      return;
+                    }
+
+                    showToast('Success', 'Task completed successfully!', 'success');
+                    if (window.lucide) {
+                      lucide.createIcons();
+                    }
+                  } else {
+                    showToast('Error', 'Incorrect verification code!', 'destructive');
+                    inputField.classList.add('border-red-500');
+                    setTimeout(() => {
+                      inputField.classList.remove('border-red-500');
+                    }, 1000);
+                  }
+                });
+              } else {
+                console.error('OK button not found in input container');
+                showToast('Error', 'Failed to find OK button.', 'destructive');
+              }
+            } else {
+              console.error('Code input container not found');
+              showToast('Error', 'Failed to display verification code input.', 'destructive');
+            }
+          });
+        });
+    });
+  });
+
+  visitButtons.forEach(button => {
+    // Hapus event listener sebelumnya untuk mencegah duplikasi
+    button.removeEventListener('click', button._clickHandler);
+    const clickHandler = async () => {
+      console.log('Visit button clicked'); // Debugging
+      const task = button.closest('.flex.space-x-2').querySelector('.claim-btn').getAttribute('data-task');
+      let link;
+      let taskPrefix;
+      switch (task) {
+        case 'buy-booster':
+          taskPrefix = '';
+          break;
+        case 'youtube-subscribe':
+          link = 'https://www.youtube.com/@aqulaapp';
+          taskPrefix = 'youtube';
+          break;
+        case 'twitter-follow':
+          link = 'https://x.com/aqula_app';
+          taskPrefix = 'twitter';
+          break;
+        default:
+          link = '#';
+          taskPrefix = '';
+      }
+
+      if (taskPrefix) {
+        console.log(`Processing task: ${taskPrefix}`);
+        await markTaskVisited(taskPrefix);
+        const result = await generateAndUpdateCode(loggedInUserEmail, taskPrefix);
+        if (result && result.code) {
+          const pinInputContainer = document.getElementById(`${taskPrefix}PinInputContainer`);
+          if (pinInputContainer) {
+            console.log('Showing PIN input container');
+            pinInputContainer.classList.remove('hidden');
+            const pinInput = pinInputContainer.querySelector('.pin-input');
+            const pinSubmitBtn = pinInputContainer.querySelector('.pin-submit-btn');
+
+            pinSubmitBtn.onclick = null;
+            pinSubmitBtn.addEventListener('click', async () => {
+              console.log('PIN submit button clicked');
+              const enteredPin = pinInput.value.trim();
+              const correctPin = await getUserPin(); // Ambil PIN dari Supabase
+              if (!correctPin) {
+                showToast('Error', 'Failed to load PIN.', 'destructive');
+                return;
+              }
+              if (enteredPin === correctPin) {
+                console.log('Correct PIN entered, showing code');
+                pinInputContainer.classList.add('hidden');
+                showCodeInUI(taskPrefix, result.code);
+
+                const claimButton = document.querySelector(`.claim-btn[data-task="${task}"]`);
+                if (claimButton) {
+                  claimButton.classList.remove('hidden');
+                }
+              } else {
+                showToast('Error', 'Incorrect PIN!', 'destructive');
+                pinInput.classList.add('border-red-500');
+                setTimeout(() => {
+                  pinInput.classList.remove('border-red-500');
+                }, 1000);
+              }
+            });
+          } else {
+            console.error(`Elemen ${taskPrefix}PinInputContainer tidak ditemukan di DOM`);
+            showToast('Error', 'Failed to display PIN input.', 'destructive');
+          }
+        } else {
+          console.error('Gagal menghasilkan kode untuk taskPrefix:', taskPrefix);
+          showToast('Error', 'Failed to generate verification code.', 'destructive');
         }
+      }
 
-        window.addEventListener('resize', onWindowResize);
-        animate();
-      });
+      if (task === 'buy-booster') {
+        const navBooster = document.getElementById('navBooster');
+        if (navBooster) {
+          console.log('Simulating click on navBooster');
+          navBooster.click();
+        } else {
+          console.error('Elemen navBooster tidak ditemukan di DOM');
+          showToast('Error', 'Failed to find the Booster button.', 'destructive');
+        }
+      } else {
+        console.log(`Opening link: ${link}`);
+        window.open(link, '_blank');
+      }
+    };
+    button._clickHandler = clickHandler;
+    button.addEventListener('click', clickHandler);
+  });
 
+  checkBoosterPurchased();
 
-
-
-
-
-
-
-
-
-
-
-
+  const toggleDayTaskModal = document.getElementById('toggleDayTaskModal');
+  if (toggleDayTaskModal) {
+    toggleDayTaskModal.addEventListener('click', () => {
+      dayTaskModal.classList.remove('hidden');
+    });
+  }
+});
 
 
 
