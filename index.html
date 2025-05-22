@@ -1642,113 +1642,155 @@
         </div>
       </div>
 
-      <!-- Task: Subscribe YouTube -->
-      <div class="relative bg-slate-800/70 rounded-xl p-5 border border-slate-700/50 hover:border-red-500/30 transition-colors">
-        <div class="flex items-start space-x-4">
-          <div class="p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 mt-0.5">
-            <i data-lucide="youtube" class="h-5 w-5 text-red-400"></i>
-          </div>
-          <div class="flex-1">
-            <h3 class="text-base font-medium text-slate-100 mb-1.5">Subscribe YouTube</h3>
-            <p class="text-xs text-slate-400/80 leading-relaxed mb-3">Subscribe to our channel for the latest updates.</p>
-            <div class="flex items-center justify-between">
-              <div class="flex items-center space-x-1.5">
-                <svg class="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="currentColor"/>
-                </svg>
-                <span class="text-xs font-medium text-amber-400">1000 XP</span>
-              </div>
-              <div class="flex space-x-2">
-                <div class="relative">
-                  <button class="task-btn claim-btn bg-red-600/90 hover:bg-red-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all" data-task="youtube-subscribe">
-                    <i data-lucide="play" class="h-3.5 w-3.5"></i>
-                    <span>Claim</span>
-                  </button>
-                  <div class="code-input-container hidden flex space-x-2 items-center mt-2">
-                    <input type="text" class="code-input bg-slate-700/50 border border-slate-600/50 rounded-lg py-1.5 px-3 text-xs text-white w-24 focus:outline-none focus:ring-1 focus:ring-cyan-500" placeholder="Enter code">
-                    <button class="ok-btn bg-green-600/90 hover:bg-green-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all">
-                      <i data-lucide="check" class="h-3.5 w-3.5"></i>
-                      <span>OK</span>
-                    </button>
-                  </div>
-                </div>
-                <button class="visit-btn text-white rounded-lg p-1.5 flex items-center transition-all">
-                  <i data-lucide="external-link" class="h-3.5 w-3.5"></i>
-                </button>
-              </div>
-            </div>
-            <div id="youtubePinInputContainer" class="hidden flex space-x-2 items-center mt-2">
-              <input type="text" class="pin-input bg-slate-700/50 border border-slate-600/50 rounded-lg py-1.5 px-3 text-xs text-white w-24 focus:outline-none focus:ring-1 focus:ring-cyan-500" placeholder="PIN">
-              <button class="pin-submit-btn bg-blue-600/90 hover:bg-blue-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all">
-                <i data-lucide="lock" class="h-3.5 w-3.5"></i>
-                <span>Submit</span>
+      <style>
+  <style>
+  .futuristic-bg {
+    position: absolute;
+    top: 0; left: 0;
+    width: 200%;
+    height: 200%;
+    background-image: radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px);
+    background-size: 10px 10px;
+    animation: moveDots 60s linear infinite;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  @keyframes moveDots {
+    from {
+      transform: translate(0, 0);
+    }
+    to {
+      transform: translate(-50%, -50%);
+    }
+  }
+
+ 
+  .new-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background-color: #22c55e;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: bold;
+    z-index: 10;
+    box-shadow: 0 0 8px #22c55e;
+  }
+</style>
+</style>
+
+<!-- Task: Subscribe YouTube -->
+<div class="relative bg-slate-800/70 rounded-xl p-5 border border-slate-700/50 hover:border-red-500/30 transition-colors">
+  <span class="new-badge">New</span>
+  <!-- Sisanya seperti sebelumnya -->
+  <div class="flex items-start space-x-4">
+    <div class="p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 mt-0.5">
+      <i data-lucide="youtube" class="h-5 w-5 text-red-400"></i>
+    </div>
+    <div class="flex-1">
+      <h3 class="text-base font-medium text-slate-100 mb-1.5">Subscribe YouTube</h3>
+      <p class="text-xs text-slate-400/80 leading-relaxed mb-3">Subscribe to our channel for the latest updates.</p>
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-1.5">
+          <svg class="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="currentColor"/>
+          </svg>
+          <span class="text-xs font-medium text-amber-400">1000 XP</span>
+        </div>
+        <div class="flex space-x-2">
+          <div class="relative">
+            <button class="task-btn claim-btn bg-red-600/90 hover:bg-red-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all" data-task="youtube-subscribe">
+              <i data-lucide="play" class="h-3.5 w-3.5"></i>
+              <span>Claim</span>
+            </button>
+            <div class="code-input-container hidden flex space-x-2 items-center mt-2">
+              <input type="text" class="code-input bg-slate-700/50 border border-slate-600/50 rounded-lg py-1.5 px-3 text-xs text-white w-24 focus:outline-none focus:ring-1 focus:ring-cyan-500" placeholder="Enter code">
+              <button class="ok-btn bg-green-600/90 hover:bg-green-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all">
+                <i data-lucide="check" class="h-3.5 w-3.5"></i>
+                <span>OK</span>
               </button>
             </div>
-            <div id="youtubeCodeDisplay" class="hidden flex items-center space-x-2 text-sm text-white p-2 rounded mt-2">
-              <span>Code: </span>
-              <span class="code-text"></span>
-              <button class="copy-btn text-white rounded p-1 transition-all" title="Copy code">
-                <i data-lucide="copy" class="h-4 w-4"></i>
-              </button>
-            </div>
           </div>
+          <button class="visit-btn text-white rounded-lg p-1.5 flex items-center transition-all">
+            <i data-lucide="external-link" class="h-3.5 w-3.5"></i>
+          </button>
         </div>
       </div>
+      <div id="youtubePinInputContainer" class="hidden flex space-x-2 items-center mt-2">
+        <input type="text" class="pin-input bg-slate-700/50 border border-slate-600/50 rounded-lg py-1.5 px-3 text-xs text-white w-24 focus:outline-none focus:ring-1 focus:ring-cyan-500" placeholder="PIN">
+        <button class="pin-submit-btn bg-blue-600/90 hover:bg-blue-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all">
+          <i data-lucide="lock" class="h-3.5 w-3.5"></i>
+          <span>Submit</span>
+        </button>
+      </div>
+      <div id="youtubeCodeDisplay" class="hidden flex items-center space-x-2 text-sm text-white p-2 rounded mt-2">
+        <span>Code: </span>
+        <span class="code-text"></span>
+        <button class="copy-btn text-white rounded p-1 transition-all" title="Copy code">
+          <i data-lucide="copy" class="h-4 w-4"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 
-      <!-- Task: Follow Twitter -->
-      <div class="relative bg-slate-800/70 rounded-xl p-5 border border-slate-700/50 hover:border-blue-500/30 transition-colors">
-        <div class="flex items-start space-x-4">
-          <div class="p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20 mt-0.5">
-            <i data-lucide="twitter" class="h-5 w-5 text-blue-400"></i>
-          </div>
-          <div class="flex-1">
-            <h3 class="text-base font-medium text-slate-100 mb-1.5">Follow Twitter</h3>
-            <p class="text-xs text-slate-400/80 leading-relaxed mb-3">Follow our Twitter account for the latest updates.</p>
-            <div class="flex items-center justify-between">
-              <div class="flex items-center space-x-1.5">
-                <svg class="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="currentColor"/>
-                </svg>
-                <span class="text-xs font-medium text-amber-400">1000 XP</span>
-              </div>
-              <div class="flex space-x-2">
-                <div class="relative">
-                  <button class="task-btn claim-btn bg-blue-600/90 hover:bg-blue-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space
-
--x-1 transition-all" data-task="twitter-follow">
-                    <i data-lucide="user-plus" class="h-3.5 w-3.5"></i>
-                    <span>Claim</span>
-                  </button>
-                  <div class="code-input-container hidden flex space-x-2 items-center mt-2">
-                    <input type="text" class="code-input bg-slate-700/50 border border-slate-600/50 rounded-lg py-1.5 px-3 text-xs text-white w-24 focus:outline-none focus:ring-1 focus:ring-cyan-500" placeholder="Enter code">
-                    <button class="ok-btn bg-green-600/90 hover:bg-green-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all">
-                      <i data-lucide="check" class="h-3.5 w-3.5"></i>
-                      <span>OK</span>
-                    </button>
-                  </div>
-                </div>
-                <button class="visit-btn text-white rounded-lg p-1.5 flex items-center transition-all">
-                  <i data-lucide="external-link" class="h-3.5 w-3.5"></i>
-                </button>
-              </div>
-            </div>
-            <div id="twitterPinInputContainer" class="hidden flex space-x-2 items-center mt-2">
-              <input type="text" class="pin-input bg-slate-700/50 border border-slate-600/50 rounded-lg py-1.5 px-3 text-xs text-white w-24 focus:outline-none focus:ring-1 focus:ring-cyan-500" placeholder="PIN">
-              <button class="pin-submit-btn bg-blue-600/90 hover:bg-blue-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all">
-                <i data-lucide="lock" class="h-3.5 w-3.5"></i>
-                <span>Submit</span>
-              </button>
-            </div>
-            <div id="twitterCodeDisplay" class="hidden flex items-center space-x-2 text-sm text-white p-2 rounded mt-2">
-              <span>Code: </span>
-              <span class="code-text"></span>
-              <button class="copy-btn text-white rounded p-1 transition-all" title="Copy code">
-                <i data-lucide="copy" class="h-4 w-4"></i>
+<!-- Task: Follow Twitter -->
+<div class="relative bg-slate-800/70 rounded-xl p-5 border border-slate-700/50 hover:border-blue-500/30 transition-colors">
+  <span class="new-badge">New</span>
+  <!-- Sisanya seperti sebelumnya -->
+  <div class="flex items-start space-x-4">
+    <div class="p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20 mt-0.5">
+      <i data-lucide="twitter" class="h-5 w-5 text-blue-400"></i>
+    </div>
+    <div class="flex-1">
+      <h3 class="text-base font-medium text-slate-100 mb-1.5">Follow Twitter</h3>
+      <p class="text-xs text-slate-400/80 leading-relaxed mb-3">Follow our Twitter account for the latest updates.</p>
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-1.5">
+          <svg class="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="currentColor"/>
+          </svg>
+          <span class="text-xs font-medium text-amber-400">1000 XP</span>
+        </div>
+        <div class="flex space-x-2">
+          <div class="relative">
+            <button class="task-btn claim-btn bg-blue-600/90 hover:bg-blue-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all" data-task="twitter-follow">
+              <i data-lucide="user-plus" class="h-3.5 w-3.5"></i>
+              <span>Claim</span>
+            </button>
+            <div class="code-input-container hidden flex space-x-2 items-center mt-2">
+              <input type="text" class="code-input bg-slate-700/50 border border-slate-600/50 rounded-lg py-1.5 px-3 text-xs text-white w-24 focus:outline-none focus:ring-1 focus:ring-cyan-500" placeholder="Enter code">
+              <button class="ok-btn bg-green-600/90 hover:bg-green-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all">
+                <i data-lucide="check" class="h-3.5 w-3.5"></i>
+                <span>OK</span>
               </button>
             </div>
           </div>
+          <button class="visit-btn text-white rounded-lg p-1.5 flex items-center transition-all">
+            <i data-lucide="external-link" class="h-3.5 w-3.5"></i>
+          </button>
         </div>
       </div>
+      <div id="twitterPinInputContainer" class="hidden flex space-x-2 items-center mt-2">
+        <input type="text" class="pin-input bg-slate-700/50 border border-slate-600/50 rounded-lg py-1.5 px-3 text-xs text-white w-24 focus:outline-none focus:ring-1 focus:ring-cyan-500" placeholder="PIN">
+        <button class="pin-submit-btn bg-blue-600/90 hover:bg-blue-600 text-white rounded-lg py-1.5 px-3 text-xs font-medium flex items-center space-x-1 transition-all">
+          <i data-lucide="lock" class="h-3.5 w-3.5"></i>
+          <span>Submit</span>
+        </button>
+      </div>
+      <div id="twitterCodeDisplay" class="hidden flex items-center space-x-2 text-sm text-white p-2 rounded mt-2">
+        <span>Code: </span>
+        <span class="code-text"></span>
+        <button class="copy-btn text-white rounded p-1 transition-all" title="Copy code">
+          <i data-lucide="copy" class="h-4 w-4"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
     </div>
 
     <div class="flex justify-end">
