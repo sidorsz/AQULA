@@ -748,13 +748,27 @@
     }
   </style>
 
-  <div id="authModal" class="fixed inset-0 bg-transparent flex items-center justify-center z-50 overflow-hidden">
+ <div id="authModal" class="fixed inset-0 bg-transparent flex items-center justify-center z-50 overflow-hidden">
+  
+  <!-- Video Background -->
+  <video 
+    autoplay 
+    muted 
+    loop 
+    playsinline 
+    webkit-playsinline 
+    preload="auto" 
+    class="absolute inset-0 w-full h-full object-cover"
+    poster="https://mnobniomzmjgpyyqartz.supabase.co/storage/v1/object/public/aqulalogo//AQULAJS.png" 
+  >
+    <source src="https://mnobniomzmjgpyyqartz.supabase.co/storage/v1/object/public/aqulalogo//authmodal.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
 
-    <!-- Video Background -->
-    <video autoplay muted loop playsinline class="absolute inset-0 w-full h-full px object-cover">
-      <source src="authmodal.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
+  
+
+
+
 
     <!-- Overlay Gradient -->
     <div class="absolute inset-0 bg-gradient-to-b from-slate-900/80 via-slate-900/60 to-slate-900/90"></div>
