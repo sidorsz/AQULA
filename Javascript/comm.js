@@ -1,0 +1,13754 @@
+/** @format */
+
+let messagesList = [];
+
+let adminMessagesList = [];
+
+let isChatInitialized = false;
+
+let supabaseChannels = [];
+
+let eventListeners = [];
+
+let onlineUsers = [];
+
+let latencyInterval;
+
+let presenceInterval = null;
+
+let lastChatTime = {};
+
+let lastMediaTime = {};
+
+let directMessages = {};
+
+let hasDirectMessagesTable = false;
+
+let hasDirectMessagesIsRead = false;
+
+let dmPollInterval = null;
+
+// column mapping for direct_messages table (some DBs use recipient_id)
+
+let dmSenderCol = "sender_id";
+
+let dmReceiverCol = "receiver_id";
+
+let hasFollowsTable = false;
+
+// =============================================
+
+// == KODE BARU: WEBTRC P2P VOICE CALL
+
+// =============================================
+
+let peerConnection = null;
+
+let localStream = null;
+
+let remoteStream = null;
+
+let callChannel = null;
+
+let callTargetUserId = null;
+
+let callRoomId = null;
+
+let turnServers = null; // Cache untuk kredensial TURN
+
+// Ringtone audio (WebAudio) state
+
+let ringtoneCtx = null;
+
+let ringtoneOsc = null;
+
+let ringtoneGain = null;
+
+let ringtoneTimer = null;
+
+function playRingtone(type = "incoming") {
+  try {
+    stopAllRingtones();
+
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+
+    if (!AudioCtx) return;
+
+    ringtoneCtx = new AudioCtx();
+
+    ringtoneOsc = ringtoneCtx.createOscillator();
+
+    ringtoneGain = ringtoneCtx.createGain();
+
+    ringtoneOsc.type = "sine";
+
+    ringtoneOsc.frequency.value = type === "incoming" ? 880 : 660;
+
+    ringtoneGain.gain.value = 0.0001;
+
+    ringtoneOsc.connect(ringtoneGain);
+
+    ringtoneGain.connect(ringtoneCtx.destination);
+
+    ringtoneOsc.start();
+
+    // simple pulsing pattern
+
+    let on = true;
+
+    ringtoneTimer = setInterval(() => {
+      try {
+        ringtoneGain.gain.cancelScheduledValues(ringtoneCtx.currentTime);
+
+        ringtoneGain.gain.setValueAtTime(
+          on ? 0.18 : 0.0001,
+          ringtoneCtx.currentTime
+        );
+
+        on = !on;
+      } catch (e) {
+        // ignore
+      }
+    }, 600);
+  } catch (e) {
+    console.warn("playRingtone error", e);
+  }
+}
+
+function stopAllRingtones() {
+  try {
+    if (ringtoneTimer) {
+      clearInterval(ringtoneTimer);
+      ringtoneTimer = null;
+    }
+
+    if (ringtoneOsc) {
+      try {
+        ringtoneOsc.stop();
+      } catch (e) {}
+      ringtoneOsc.disconnect();
+      ringtoneOsc = null;
+    }
+
+    if (ringtoneGain) {
+      try {
+        ringtoneGain.disconnect();
+      } catch (e) {}
+      ringtoneGain = null;
+    }
+
+    if (ringtoneCtx) {
+      try {
+        ringtoneCtx.close();
+      } catch (e) {}
+      ringtoneCtx = null;
+    }
+  } catch (e) {
+    console.warn("stopAllRingtones error", e);
+  }
+}
+
+// [BARU] Nada disconnect/call-end (short beep pattern seperti WhatsApp)
+
+function playDisconnectTone() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+
+    if (!AudioCtx) return;
+
+    const ctx = new AudioCtx();
+
+    const osc = ctx.createOscillator();
+
+    const gain = ctx.createGain();
+
+    osc.type = "sine";
+
+    osc.frequency.value = 800; // Frekuensi medium
+
+    osc.connect(gain);
+
+    gain.connect(ctx.destination);
+
+    // Pola beep: 200ms beep, 100ms diam, 200ms beep
+
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+
+    gain.gain.setValueAtTime(0.15, ctx.currentTime + 0.2);
+
+    gain.gain.setValueAtTime(0, ctx.currentTime + 0.2);
+
+    gain.gain.setValueAtTime(0.15, ctx.currentTime + 0.3);
+
+    gain.gain.setValueAtTime(0, ctx.currentTime + 0.5);
+
+    osc.start(ctx.currentTime);
+
+    osc.stop(ctx.currentTime + 0.5);
+
+    ctx.close();
+  } catch (e) {
+    console.warn("playDisconnectTone error", e);
+  }
+}
+
+/**
+
+ * [BARU] 1. Ambil Kredensial STUN/TURN
+
+ * Mengambil kredensial dari server Node.js kita, yang bertindak sebagai proxy
+
+ * ke Metered.ca (atau fallback ke STUN Google jika gagal).
+
+ */
+
+async function getTurnServers() {
+  // Jika sudah ada di cache, langsung kembalikan
+
+  if (turnServers) return turnServers;
+
+  try {
+    // PENTING: Pastikan server Node.js Anda berjalan di port 5500
+
+    // Jika Anda menggunakan hosting, ganti 'http://localhost:5500' dengan URL server Anda
+
+    const response = await fetch("http://localhost:5500/get-turn-credentials");
+
+    if (!response.ok) {
+      throw new Error("Gagal mengambil kredensial dari server proxy");
+    }
+
+    const iceServers = await response.json();
+
+    // Cek apakah server kita mengembalikan fallback (Google)
+
+    if (iceServers.length > 0 && iceServers[0].urls.includes("google")) {
+      console.warn(
+        "Menggunakan STUN publik (fallback). Pastikan server Node.js Anda berjalan dan .env sudah diatur."
+      );
+    } else {
+      console.log("Sukses mengambil kredensial STUN/TURN dari Metered.ca.");
+    }
+
+    turnServers = iceServers; // Simpan ke cache
+
+    return turnServers;
+  } catch (error) {
+    console.error("Error mengambil TURN credentials:", error.message);
+
+    showToast(
+      "Warning",
+      "Gagal mengambil server TURN, panggilan mungkin gagal.",
+      "warning"
+    );
+
+    // Fallback terakhir jika server Node.js kita mati
+
+    turnServers = [{ urls: "stun:stun.l.google.com:19302" }];
+
+    return turnServers;
+  }
+}
+
+/**
+
+ * [BARU] 2. Buat UI Modal Call
+
+ * Menampilkan modal panggilan dengan status: outgoing, incoming, atau active.
+
+ */
+
+function createCallUI(state, userName, avatarUrl) {
+  const container = document.getElementById("callModalContainer");
+
+  let actionsHtml = "";
+
+  // Tentukan tombol berdasarkan status panggilan
+
+  if (state === "outgoing") {
+    actionsHtml = `
+
+      <button id="hangUpBtn" class="call-btn call-btn-decline" data-tooltip="Hang Up">
+
+        <i data-lucide="phone-off"></i>
+
+      </button>
+
+    `;
+  } else if (state === "incoming") {
+    actionsHtml = `
+
+      <button id="acceptCallBtn" class="call-btn call-btn-accept" data-tooltip="Accept">
+
+        <i data-lucide="phone"></i>
+
+      </button>
+
+      <button id="declineCallBtn" class="call-btn call-btn-decline" data-tooltip="Decline">
+
+        <i data-lucide="phone-off"></i>
+
+      </button>
+
+    `;
+  } else if (state === "active") {
+    actionsHtml = `
+
+      <button id="muteBtn" class="call-btn call-btn-mute" data-tooltip="Mute" title="Toggle Microphone">
+
+        <i data-lucide="mic"></i>
+
+      </button>
+
+      <button id="volumeBtn" class="call-btn call-btn-volume" data-tooltip="Volume" title="Toggle Speaker Volume">
+
+        <i data-lucide="volume-2"></i>
+
+      </button>
+
+      <button id="hangUpBtn" class="call-btn call-btn-decline" data-tooltip="Hang Up" title="End Call">
+
+        <i data-lucide="phone-off"></i>
+
+      </button>
+
+    `;
+  }
+
+  const callStatus =
+    state === "outgoing"
+      ? "Calling..."
+      : state === "incoming"
+      ? "Incoming Call..."
+      : "On Call";
+
+  // Logika avatar default jika URL tidak ada atau error
+
+  const avatarImg =
+    avatarUrl && avatarUrl !== "/default-avatar.png"
+      ? `<img src="${avatarUrl}" alt="${userName}" onerror="this.onerror=null;this.src='/default-avatar.png'">`
+      : `<div class="w-full h-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-white text-4xl font-bold">
+
+         ${(userName || "A")[0].toUpperCase()}
+
+       </div>`;
+
+  // Wave animation untuk visual audio (tampil saat incoming/active)
+
+  const waveHtml =
+    state === "incoming" || state === "active"
+      ? `
+
+    <div class="call-wave">
+
+      <div class="call-wave-bar"></div>
+
+      <div class="call-wave-bar"></div>
+
+      <div class="call-wave-bar"></div>
+
+      <div class="call-wave-bar"></div>
+
+      <div class="call-wave-bar"></div>
+
+    </div>
+
+  `
+      : "";
+
+  // Render HTML modal
+
+  container.innerHTML = `
+
+    <div class="call-modal">
+
+      <div class="call-avatar">
+
+        ${avatarImg}
+
+      </div>
+
+      <div class="call-name">${sanitizeHTML(userName) || "Unknown User"}</div>
+
+      ${waveHtml}
+
+      <div class="call-status">${callStatus}</div>
+
+      <div class="call-actions">
+
+        ${actionsHtml}
+
+      </div>
+
+    </div>
+
+  `;
+
+  lucide.createIcons(); // Render ikon
+
+  // Pastikan modal benar-benar terlihat: beberapa browser/HTML memiliki inline style display:none
+
+  try {
+    container.style.display = "flex";
+
+    container.style.pointerEvents = "auto";
+
+    container.classList.add("show"); // Tampilkan modal dengan animasi
+  } catch (e) {
+    console.warn("Could not show call modal container:", e);
+  }
+
+  // Tambahkan event listener untuk tombol-tombol baru (safe attach - cek eksistensi elemen)
+
+  if (state === "outgoing") {
+    const hangEl = document.getElementById("hangUpBtn");
+
+    if (hangEl) hangEl.addEventListener("click", hangUp);
+    else console.warn("hangUpBtn not found (outgoing)");
+  } else if (state === "incoming") {
+    const acceptEl = document.getElementById("acceptCallBtn");
+
+    const declineEl = document.getElementById("declineCallBtn");
+
+    if (acceptEl) acceptEl.addEventListener("click", answerCall);
+    else console.warn("acceptCallBtn not found");
+
+    if (declineEl) declineEl.addEventListener("click", hangUp);
+    else console.warn("declineCallBtn not found");
+  } else if (state === "active") {
+    const hangEl = document.getElementById("hangUpBtn");
+
+    const muteEl = document.getElementById("muteBtn");
+
+    const volEl = document.getElementById("volumeBtn");
+
+    if (hangEl) hangEl.addEventListener("click", hangUp);
+    else console.warn("hangUpBtn not found (active)");
+
+    if (muteEl) muteEl.addEventListener("click", toggleMute);
+    else console.warn("muteBtn not found");
+
+    if (volEl) volEl.addEventListener("click", toggleVolume);
+    else console.warn("volumeBtn not found");
+  }
+}
+
+// Utility: safely replace/insert button icon and render via lucide
+
+function updateButtonIcon(button, iconName) {
+  if (!button) return;
+
+  try {
+    // Find existing icon element (i tag or svg or element with data-lucide)
+
+    const existing = button.querySelector("i, svg, [data-lucide]");
+
+    const i = document.createElement("i");
+
+    i.setAttribute("data-lucide", iconName);
+
+    // Preserve basic aria/tooltip if exists
+
+    if (existing) {
+      existing.replaceWith(i);
+    } else {
+      // insert as first child
+
+      button.insertBefore(i, button.firstChild);
+    }
+
+    // Re-render lucide icons (safe to call repeatedly)
+
+    if (window.lucide && typeof lucide.createIcons === "function") {
+      lucide.createIcons();
+    }
+  } catch (e) {
+    console.warn("updateButtonIcon failed", e);
+  }
+}
+
+/**
+
+ * [BARU] 3. Fungsi Utama: Memulai Panggilan (Caller)
+
+ */
+
+async function startCall(targetUserId, targetUserName, targetAvatarUrl) {
+  if (!window.currentUser?.id) {
+    showToast("Error", "Please login to start a call", "error");
+
+    return;
+  }
+
+  if (peerConnection) {
+    showToast("Info", "You are already in a call", "info");
+
+    return;
+  }
+
+  console.log(`Starting call to ${targetUserId}...`);
+
+  callTargetUserId = targetUserId;
+
+  // Buat ID room yang unik untuk panggilan ini
+
+  callRoomId = `call_${window.currentUser.id}_${targetUserId}`;
+
+  // Jika nama/avatar tidak diberikan (mis. dipanggil hanya dengan ID), ambil dari DB
+
+  try {
+    if (!targetUserName || !targetAvatarUrl) {
+      const { data: profile, error } = await supabase
+
+        .from("profiles")
+
+        .select("full_name, avatar_url")
+
+        .eq("id", targetUserId)
+
+        .single();
+
+      if (!error && profile) {
+        targetUserName = targetUserName || profile.full_name || "Anonymous";
+
+        targetAvatarUrl =
+          targetAvatarUrl ||
+          (profile.avatar_url
+            ? await getAvatarUrl(profile.avatar_url)
+            : "/default-avatar.png");
+      }
+    }
+  } catch (e) {
+    console.warn("Could not fetch profile for call UI:", e);
+  }
+
+  // Tampilkan UI "Calling..."
+
+  createCallUI("outgoing", targetUserName, targetAvatarUrl);
+
+  // Putar nada dering outgoing sampai panggilan terhubung atau dibatalkan
+
+  try {
+    playRingtone("outgoing");
+  } catch (e) {
+    console.warn("Could not play outgoing ringtone", e);
+  }
+
+  try {
+    // 1. Ambil izin & stream audio lokal
+
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: false,
+    });
+
+    // 2. Kirim "dering" ke target user melalui DM
+
+    // Ini adalah pesan sinyal rahasia kita.
+
+    await sendDirectMessage(targetUserId, `__VOICE_CALL_OFFER__:${callRoomId}`);
+
+    console.log("Call offer DM sent.");
+
+    // 3. Mulai join ke channel signaling (sebagai Caller)
+
+    await joinSignalingChannel(callRoomId, true); // true = isCaller
+  } catch (err) {
+    console.error("Error starting call:", err);
+
+    if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+      showToast("Error", "Microphone not found.", "destructive");
+    } else if (
+      err.name === "NotAllowedError" ||
+      err.name === "PermissionDeniedError"
+    ) {
+      showToast("Error", "Microphone permission denied.", "destructive");
+    } else {
+      showToast("Error", "Failed to start call.", "error");
+    }
+
+    hangUp(); // Bersihkan jika gagal
+  }
+}
+
+/**
+
+ * [BARU] 4. Fungsi Utama: Menerima Panggilan (Callee)
+
+ * Fungsi ini dipanggil oleh handler DM realtime saat pesan `__VOICE_CALL_OFFER__` diterima.
+
+ */
+
+async function receiveCall(callerId, receivedRoomId) {
+  // Jika sudah ada panggilan, kirim sinyal 'busy' (opsional, untuk saat ini abaikan)
+
+  if (peerConnection) {
+    console.warn("Already in a call, ignoring new call from " + callerId);
+
+    // TODO: Kirim sinyal 'busy' kembali ke callerId
+
+    return;
+  }
+
+  console.log(`Incoming call from ${callerId}...`);
+
+  callRoomId = receivedRoomId;
+
+  callTargetUserId = callerId;
+
+  // Ambil profil si penelepon untuk ditampilkan di UI
+
+  const { data: profile, error } = await supabase
+
+    .from("profiles")
+
+    .select("full_name, avatar_url")
+
+    .eq("id", callerId)
+
+    .single();
+
+  if (error) {
+    console.error("Failed to get caller profile", error);
+
+    hangUp(); // Gagal, tutup
+
+    return;
+  }
+
+  // Ambil URL avatar yang aman
+
+  const avatarUrl = profile.avatar_url
+    ? await getAvatarUrl(profile.avatar_url)
+    : null;
+
+  // Tampilkan UI "Incoming Call..."
+
+  createCallUI("incoming", profile.full_name, avatarUrl);
+
+  // Putar nada dering incoming sampai dijawab atau dibatalkan
+
+  try {
+    playRingtone("incoming");
+  } catch (e) {
+    console.warn("Could not play incoming ringtone", e);
+  }
+}
+
+// [MODIFIKASI] 5. Fungsi Utama: Menjawab Panggilan (Callee)
+
+async function answerCall() {
+  console.log("Answering call...");
+
+  if (!callRoomId || !callTargetUserId) {
+    console.error("Call details not found, cannot answer.");
+
+    return;
+  }
+
+  // Hentikan nada dering masuk
+
+  stopAllRingtones();
+
+  try {
+    // 1. Ambil media (audio) - dengan error handling yang lebih baik
+
+    console.log("Requesting audio permission...");
+
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+
+        noiseSuppression: true,
+
+        autoGainControl: true,
+      },
+
+      video: false,
+    });
+
+    console.log(
+      "Audio stream obtained, tracks:",
+      localStream.getTracks().length
+    );
+
+    // 2. Mulai join ke channel signaling (sebagai Callee)
+
+    await joinSignalingChannel(callRoomId, false); // false = isCaller
+
+    // 3. [BARU] Tunggu sebentar untuk memastikan channel sudah subscribe, kemudian kirim "im-ready"
+
+    // Ini penting agar sender/receiver siap sebelum pesan dikirim
+
+    setTimeout(() => {
+      if (callChannel) {
+        console.log('Sending "im-ready" signal to caller...');
+
+        callChannel.send({
+          type: "broadcast",
+
+          event: "im-ready",
+
+          payload: {},
+        });
+
+        console.log('"im-ready" signal sent');
+      } else {
+        console.error("callChannel not available when trying to send im-ready");
+      }
+    }, 500); // Tunggu 500ms untuk memastikan channel ready
+  } catch (err) {
+    console.error("Error answering call:", err);
+
+    showToast("Error", "Failed to answer call. Check permissions.", "error");
+
+    hangUp(); // Bersihkan jika gagal
+  }
+}
+
+// [MODIFIKASI] 6. Fungsi Inti WebRTC: Join Channel Signaling
+
+async function joinSignalingChannel(roomId, isCaller) {
+  if (callChannel) {
+    callChannel.unsubscribe(); // Bersihkan channel lama jika ada
+  }
+
+  // 1. Buat Peer Connection dengan server STUN/TURN
+
+  console.log("Creating PeerConnection...");
+
+  const iceServers = await getTurnServers();
+
+  peerConnection = new RTCPeerConnection({ iceServers });
+
+  // Monitor connection state untuk debugging
+
+  peerConnection.onconnectionstatechange = () => {
+    console.log(
+      "PeerConnection connectionState changed:",
+      peerConnection.connectionState
+    );
+
+    if (
+      peerConnection.connectionState === "failed" ||
+      peerConnection.connectionState === "disconnected"
+    ) {
+      showToast(
+        "Warning",
+        "Connection unstable. Trying to reconnect...",
+        "warning"
+      );
+    }
+  };
+
+  peerConnection.oniceconnectionstatechange = () => {
+    console.log(
+      "PeerConnection iceConnectionState changed:",
+      peerConnection.iceConnectionState
+    );
+  };
+
+  peerConnection.onsignalingstatechange = () => {
+    console.log(
+      "PeerConnection signalingState changed:",
+      peerConnection.signalingState
+    );
+  };
+
+  // 2. Tambahkan track audio lokal ke koneksi
+
+  if (localStream) {
+    localStream.getTracks().forEach((track) => {
+      console.log("Adding local track:", track.kind, "enabled:", track.enabled);
+
+      peerConnection.addTrack(track, localStream);
+    });
+  }
+
+  // 3. Handle saat remote audio track diterima
+
+  peerConnection.ontrack = (event) => {
+    console.log("Got remote track, call connected!", event);
+
+    remoteStream = event.streams[0];
+
+    // Dapatkan elemen audio dan pastikan autoplay sudah aktif
+
+    const remoteAudio = document.getElementById("remoteAudio");
+
+    if (remoteAudio) {
+      remoteAudio.srcObject = remoteStream;
+
+      remoteAudio.volume = 1; // Full volume untuk remote audio
+
+      // Force play dengan error handling
+
+      remoteAudio.play().catch((err) => {
+        console.warn(
+          "Could not autoplay remote audio, might need user gesture:",
+          err
+        );
+
+        // Coba play lagi dengan timeout kecil
+
+        setTimeout(() => {
+          remoteAudio
+            .play()
+            .catch((e) => console.warn("Retry play failed:", e));
+        }, 100);
+      });
+
+      console.log("Remote audio stream attached and playing");
+    } else {
+      console.warn("remoteAudio element not found!");
+    }
+
+    // [MODIFIKASI NADA DERING] Hentikan semua nada dering saat koneksi berhasil
+
+    stopAllRingtones();
+
+    // Update UI ke 'active' (On Call)
+
+    const modal = document.getElementById("callModalContainer");
+
+    const targetName = modal.querySelector(".call-name").textContent || "User";
+
+    const targetAvatar = modal.querySelector(".call-avatar img")?.src || null;
+
+    createCallUI("active", targetName, targetAvatar);
+  };
+
+  // 4. Setup Channel Supabase untuk signaling
+
+  callChannel = supabase.channel(roomId, {
+    config: {
+      presence: { key: window.currentUser.id },
+
+      broadcast: { self: true },
+    },
+  });
+
+  // 5. Kirim ICE candidates ke peer
+
+  peerConnection.onicecandidate = (event) => {
+    if (event.candidate) {
+      console.log(
+        "Sending ICE candidate:",
+        event.candidate.candidate.substring(0, 50) + "..."
+      );
+
+      callChannel.send({
+        type: "broadcast",
+
+        event: "ice-candidate",
+
+        payload: { candidate: event.candidate.toJSON() }, // Convert to JSON for Supabase
+      });
+    }
+  };
+
+  peerConnection.onicecandidateerror = (event) => {
+    console.warn("ICE candidate error:", event.errorCode, event.errorText);
+  };
+
+  // 6. Dengarkan event dari channel
+
+  callChannel
+
+    // [BARU] Penelepon (Caller) menunggu sinyal 'im-ready' dari Penerima (Callee)
+
+    .on("broadcast", { event: "im-ready" }, async ({ payload }) => {
+      if (isCaller) {
+        // Hanya Penelepon yang bereaksi
+
+        console.log("[CALLER] Callee is ready. Creating and sending offer...");
+
+        console.log(
+          "[CALLER] Peer connection state:",
+          peerConnection.connectionState
+        );
+
+        console.log("[CALLER] Signaling state:", peerConnection.signalingState);
+
+        try {
+          const offer = await peerConnection.createOffer();
+
+          console.log("[CALLER] Offer created:", offer);
+
+          await peerConnection.setLocalDescription(offer);
+
+          console.log("[CALLER] Local description set with offer");
+
+          callChannel.send({
+            type: "broadcast",
+
+            event: "offer",
+
+            payload: { offer },
+          });
+
+          console.log("[CALLER] Offer sent to callee");
+        } catch (err) {
+          console.error("[CALLER] Error creating/sending offer:", err);
+
+          showToast("Error", "Failed to create call offer", "error");
+        }
+      }
+    })
+
+    .on("broadcast", { event: "offer" }, async ({ payload }) => {
+      // Hanya Callee (bukan caller) yang memproses 'offer'
+
+      if (!isCaller) {
+        console.log("[CALLEE] Received offer from caller:", payload.offer);
+
+        try {
+          console.log("[CALLEE] Setting remote description with offer...");
+
+          await peerConnection.setRemoteDescription(payload.offer);
+
+          console.log("[CALLEE] Creating answer...");
+
+          const answer = await peerConnection.createAnswer();
+
+          console.log("[CALLEE] Setting local description with answer...");
+
+          await peerConnection.setLocalDescription(answer);
+
+          console.log("[CALLEE] Sending answer back to caller...");
+
+          callChannel.send({
+            type: "broadcast",
+
+            event: "answer",
+
+            payload: { answer },
+          });
+        } catch (err) {
+          console.error("[CALLEE] Error processing offer:", err);
+
+          showToast("Error", "Failed to process call offer", "error");
+        }
+      }
+    })
+
+    .on("broadcast", { event: "answer" }, async ({ payload }) => {
+      // Hanya Caller yang memproses 'answer'
+
+      if (isCaller) {
+        console.log("[CALLER] Received answer from callee:", payload.answer);
+
+        try {
+          console.log("[CALLER] Setting remote description with answer...");
+
+          await peerConnection.setRemoteDescription(payload.answer);
+
+          console.log(
+            "[CALLER] Successfully set remote description, waiting for connection..."
+          );
+        } catch (err) {
+          console.error("[CALLER] Error processing answer:", err);
+
+          showToast("Error", "Failed to process call answer", "error");
+        }
+      }
+    })
+
+    .on("broadcast", { event: "ice-candidate" }, async ({ payload }) => {
+      console.log("Received ICE candidate");
+
+      try {
+        const candidate = new RTCIceCandidate(payload.candidate);
+
+        await peerConnection.addIceCandidate(candidate);
+
+        console.log("Added ICE candidate successfully");
+      } catch (err) {
+        console.warn("Error adding ICE candidate:", err);
+      }
+    })
+
+    .on("broadcast", { event: "hang-up" }, () => {
+      showToast("Info", "Call ended by user", "info");
+
+      // [MODIFIKASI NADA DERING] Hentikan nada dering jika ditutup
+
+      stopAllRingtones();
+
+      hangUp();
+    })
+
+    .subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        console.log("Signaling channel subscribed");
+
+        // [MODIFIKASI] Penelepon TIDAK lagi mengirim offer di sini.
+
+        // Dia akan menunggu sinyal 'im-ready'
+
+        // if (isCaller) { ... BLOK INI DIHAPUS ... }
+      }
+    });
+
+  supabaseChannels.push(callChannel); // Lacak channel ini agar bisa di-cleanup
+}
+
+/**
+
+ * [BARU] 7. Fungsi Utility: Tutup Panggilan (Hang Up)
+
+ * Membersihkan semua koneksi dan stream.
+
+ */
+
+function hangUp() {
+  console.log("Hanging up call...");
+
+  // Stop any playing ringtones
+
+  try {
+    stopAllRingtones();
+  } catch (e) {}
+
+  // Play disconnect tone (seperti WhatsApp)
+
+  try {
+    if (peerConnection && peerConnection.connectionState !== "new") {
+      // Hanya play disconnect tone jika koneksi sudah dimulai
+
+      playDisconnectTone();
+    }
+  } catch (e) {}
+
+  // Kirim sinyal hang-up ke user lain
+
+  if (callChannel) {
+    callChannel.send({
+      type: "broadcast",
+
+      event: "hang-up",
+
+      payload: {},
+    });
+
+    // Hapus channel dari Supabase
+
+    supabase.removeChannel(callChannel);
+
+    callChannel = null;
+  }
+
+  // Tutup koneksi P2P
+
+  if (peerConnection) {
+    peerConnection.close();
+
+    peerConnection = null;
+  }
+
+  // Matikan stream audio lokal (matikan mic)
+
+  if (localStream) {
+    localStream.getTracks().forEach((track) => track.stop());
+
+    localStream = null;
+  }
+
+  // Hentikan stream audio remote
+
+  if (remoteStream) {
+    remoteStream.getTracks().forEach((track) => track.stop());
+
+    const remoteAudio = document.getElementById("remoteAudio");
+
+    if (remoteAudio) {
+      remoteAudio.pause();
+
+      remoteAudio.srcObject = null;
+    }
+
+    remoteStream = null;
+  }
+
+  // Sembunyikan modal
+
+  const modal = document.getElementById("callModalContainer");
+
+  if (modal) {
+    modal.classList.remove("show");
+
+    // Set display none agar tidak tertimpa inline style sebelumnya
+
+    try {
+      modal.style.pointerEvents = "none";
+      modal.style.display = "none";
+    } catch (e) {}
+
+    // Beri jeda agar animasi (jika ada) selesai sebelum menghapus HTML
+
+    setTimeout(() => {
+      try {
+        modal.innerHTML = "";
+      } catch (e) {}
+    }, 300);
+  }
+
+  // Reset variabel state
+
+  callTargetUserId = null;
+
+  callRoomId = null;
+}
+
+/**
+
+ * [BARU] 8. Fungsi Utility: Mute/Unmute
+
+ */
+
+async function toggleMute() {
+  const muteBtn = document.getElementById("muteBtn");
+
+  if (!muteBtn) {
+    console.warn("toggleMute: muteBtn not found");
+
+    return;
+  }
+
+  // If we don't have a local stream yet, try to request permission and attach
+
+  if (!localStream) {
+    try {
+      showToast("Info", "Requesting microphone permission...", "info");
+
+      localStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false,
+      });
+
+      // If peerConnection exists, add tracks
+
+      if (peerConnection) {
+        localStream.getTracks().forEach((track) => {
+          try {
+            peerConnection.addTrack(track, localStream);
+          } catch (e) {
+            console.warn("addTrack failed", e);
+          }
+        });
+      }
+    } catch (err) {
+      console.error("toggleMute: failed to getUserMedia", err);
+
+      showToast("Error", "Could not access microphone", "error");
+
+      return;
+    }
+  }
+
+  const audioTrack = localStream.getAudioTracks()[0];
+
+  if (!audioTrack) {
+    console.warn("toggleMute: no audio track available");
+
+    showToast("Error", "No audio track available", "error");
+
+    return;
+  }
+
+  if (audioTrack.enabled) {
+    // Mute
+
+    audioTrack.enabled = false;
+
+    muteBtn.classList.add("muted");
+
+    updateButtonIcon(muteBtn, "mic-off");
+
+    showToast("Info", "Microphone Muted", "info");
+  } else {
+    // Unmute
+
+    audioTrack.enabled = true;
+
+    muteBtn.classList.remove("muted");
+
+    updateButtonIcon(muteBtn, "mic");
+
+    showToast("Info", "Microphone On", "info");
+  }
+}
+
+/**
+
+ * [BARU] 9. Fungsi Utility: Toggle Volume Speaker
+
+ * Mengatur volume speaker untuk remote audio (untuk hearing yg keluar dari device)
+
+ */
+
+function toggleVolume() {
+  const volumeBtn = document.getElementById("volumeBtn");
+
+  const remoteAudio = document.getElementById("remoteAudio");
+
+  if (!volumeBtn) {
+    console.warn("toggleVolume: volumeBtn not found");
+
+    return;
+  }
+
+  if (!remoteAudio) {
+    console.warn("toggleVolume: remoteAudio element not ready");
+
+    showToast("Info", "Remote audio not available yet", "info");
+
+    return;
+  }
+
+  // Use muted property + volume for clarity
+
+  if (remoteAudio.muted || remoteAudio.volume === 0) {
+    remoteAudio.muted = false;
+
+    remoteAudio.volume = 1.0;
+
+    volumeBtn.classList.remove("muted");
+
+    updateButtonIcon(volumeBtn, "volume-2");
+
+    showToast("Info", "Speaker On", "info");
+  } else {
+    remoteAudio.muted = true;
+
+    remoteAudio.volume = 0;
+
+    volumeBtn.classList.add("muted");
+
+    updateButtonIcon(volumeBtn, "volume-x");
+
+    showToast("Info", "Speaker Muted", "info");
+  }
+}
+
+// =============================================
+
+// == AKHIR DARI KODE BARU WEBTRC
+
+// =============================================
+
+const CHAT_COOLDOWN = 60 * 1000; // 1 detik
+
+const MEDIA_COOLDOWN = 60 * 30 * 1000; // 1 detik
+
+// Tambahkan ini di awal file Communications.js
+
+document.addEventListener("click", function (e) {
+  // Handle menu dots
+
+  // run schema detection and init realtime + UI helpers
+
+  checkDatabaseSchema()
+    .then(async () => {
+      try {
+        initDirectMessageRealtime();
+      } catch (e) {
+        console.warn("initDirectMessageRealtime failed:", e);
+      }
+
+      try {
+        createInboxShortcut();
+      } catch (e) {
+        console.warn("createInboxShortcut failed:", e);
+      }
+
+      try {
+        startDirectMessagePoll();
+      } catch (e) {
+        console.warn("startDirectMessagePoll failed:", e);
+      }
+
+      try {
+        // initialise inbox badge count based on unread messages
+
+        const convs = await getConversations();
+
+        const totalUnread = (convs || []).reduce(
+          (s, c) => s + (c.unread || 0),
+          0
+        );
+
+        if (totalUnread > 0) updateInboxBadge(totalUnread);
+      } catch (e) {
+        console.warn("Could not initialise inbox badge:", e);
+      }
+    })
+    .catch((e) => console.warn("checkDatabaseSchema failed:", e));
+
+  const menuBtn = e.target.closest(".menu-btn");
+
+  const menuDropdown = menuBtn?.parentElement?.querySelector(".menu-dropdown");
+
+  if (menuBtn && menuDropdown) {
+    e.stopPropagation();
+
+    // Tutup semua dropdown lain
+
+    document
+      .querySelectorAll(".menu-dropdown:not(.hidden)")
+      .forEach((dropdown) => {
+        if (dropdown !== menuDropdown) {
+          dropdown.classList.add("hidden");
+        }
+      });
+
+    menuDropdown.classList.toggle("hidden");
+  } else if (!e.target.closest(".menu-dropdown")) {
+    // Tutup semua dropdown jika klik di luar
+
+    document.querySelectorAll(".menu-dropdown").forEach((dropdown) => {
+      dropdown.classList.add("hidden");
+    });
+  }
+
+  // Handle profile clicks
+
+  const userElement = e.target.closest("[data-user-id]");
+
+  if (userElement) {
+    const userId = userElement.dataset.userId;
+
+    if (userId) {
+      e.preventDefault();
+
+      showUserProfilePopup(userId);
+    }
+  }
+});
+
+// Check database schema support
+
+async function checkDatabaseSchema() {
+  try {
+    const { data: dmData, error: dmError } = await supabase
+
+      .from("direct_messages")
+
+      .select("id")
+
+      .limit(1);
+
+    hasDirectMessagesTable = !dmError;
+
+    // detect is_read column support and which receiver column is used
+
+    if (hasDirectMessagesTable) {
+      try {
+        // try standard receiver_id + is_read
+
+        const { data: r, error: rErr } = await supabase
+
+          .from("direct_messages")
+
+          .select("receiver_id,is_read")
+
+          .limit(1);
+
+        if (!rErr) {
+          hasDirectMessagesIsRead = "is_read" in (r && r[0] ? r[0] : {});
+
+          dmReceiverCol = "receiver_id";
+
+          dmSenderCol = "sender_id";
+        } else {
+          // fallback try recipient_id
+
+          const { data: r2, error: rErr2 } = await supabase
+
+            .from("direct_messages")
+
+            .select("recipient_id,is_read")
+
+            .limit(1);
+
+          if (!rErr2) {
+            hasDirectMessagesIsRead = "is_read" in (r2 && r2[0] ? r2[0] : {});
+
+            dmReceiverCol = "recipient_id";
+
+            dmSenderCol = "sender_id";
+          } else {
+            hasDirectMessagesIsRead = false;
+          }
+        }
+      } catch (e) {
+        hasDirectMessagesIsRead = false;
+      }
+    }
+
+    const { data: followData, error: followError } = await supabase
+
+      .from("follows")
+
+      .select("follower_id")
+
+      .limit(1);
+
+    hasFollowsTable = !followError;
+
+    console.log("Schema support:", { hasDirectMessagesTable, hasFollowsTable });
+  } catch (err) {
+    console.error("Error checking schema:", err);
+  }
+}
+
+// Direct Message Functions
+
+async function sendDirectMessage(receiverId, content) {
+  if (!content.trim()) return;
+
+  try {
+    if (hasDirectMessagesTable) {
+      // build insert object using detected column names
+
+      const insertObj = {};
+
+      insertObj[dmSenderCol] = window.currentUser?.id;
+
+      insertObj[dmReceiverCol] = receiverId;
+
+      insertObj.content = content;
+
+      const { data, error } = await supabase
+
+        .from("direct_messages")
+
+        .insert(insertObj)
+
+        .select()
+
+        .single();
+
+      if (error) {
+        console.error("sendDirectMessage: insert error ->", error);
+
+        throw error;
+      }
+
+      console.debug("sendDirectMessage: insert returned ->", data);
+
+      // Add to local cache
+
+      if (!directMessages[receiverId]) directMessages[receiverId] = [];
+
+      directMessages[receiverId].push(data);
+
+      updateDirectMessageUI(receiverId);
+
+      // Update inbox UI so the conversation appears for the sender
+
+      try {
+        await refreshConversationsUI();
+      } catch (e) {
+        console.warn("Could not refresh conversations after DM insert:", e);
+      }
+    } else {
+      // Fallback to localStorage
+
+      const message = {
+        id: `local-${Date.now()}`,
+
+        sender_id: window.currentUser?.id,
+
+        receiver_id: receiverId,
+
+        content: content,
+
+        created_at: new Date().toISOString(),
+      };
+
+      const localMessages = JSON.parse(
+        localStorage.getItem("directMessages") || "{}"
+      );
+
+      if (!localMessages[receiverId]) localMessages[receiverId] = [];
+
+      localMessages[receiverId].push(message);
+
+      localStorage.setItem("directMessages", JSON.stringify(localMessages));
+
+      if (!directMessages[receiverId]) directMessages[receiverId] = [];
+
+      directMessages[receiverId].push(message);
+
+      console.debug(
+        "sendDirectMessage: saved message locally and pushed to in-memory cache for",
+        receiverId,
+        message
+      );
+
+      updateDirectMessageUI(receiverId);
+
+      // Update inbox UI for local fallback as well
+
+      try {
+        await refreshConversationsUI();
+      } catch (e) {
+        console.warn("Could not refresh conversations after local DM:", e);
+      }
+
+      showToast(
+        "Info",
+        "Message saved locally - server storage not available",
+        "info"
+      );
+    }
+  } catch (err) {
+    console.error("Error sending DM:", err);
+
+    showToast("Error", "Failed to send message", "error");
+  }
+}
+
+// Update follow button in UI
+
+function updateFollowButton(userId, isFollowing) {
+  const btn = document.getElementById(`followBtn-${userId}`);
+
+  if (!btn) return; // Tombol tidak ditemukan
+
+  // 1. Cari DIV container di dalam tombol
+
+  const container = btn.querySelector("div.flex");
+
+  if (!container) {
+    console.error("Tombol follow tidak memiliki DIV container!", btn);
+
+    return;
+  }
+
+  // 2. Ganti isi HTML container-nya
+
+  if (isFollowing) {
+    container.innerHTML = `
+
+            <i data-lucide="user-check" class="h-4 w-4"></i>
+
+            <span>Following</span>
+
+          `;
+  } else {
+    container.innerHTML = `
+
+            <i data-lucide="user-plus" class="h-4 w-4"></i>
+
+            <span>Follow User</span>
+
+          `;
+  }
+
+  // 3. Update Kelas (CSS) agar warnanya berubah
+
+  const baseClasses =
+    "w-full py-3.5 px-4 rounded-xl font-semibold transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]";
+
+  if (isFollowing) {
+    // Kelas untuk "Following" (abu-abu/slate)
+
+    btn.className = `${baseClasses} bg-gradient-to-r from-slate-700 to-slate-800 text-slate-200 border border-slate-600/50 shadow-lg`;
+  } else {
+    // Kelas untuk "Follow User" (biru/cyan)
+
+    btn.className = `${baseClasses} bg-gradient-to-r from-teal-500 to-cyan-600 text-white shadow-lg shadow-cyan-500/30 hover:shadow-cyan-500/50`;
+  }
+
+  // 4. Render ulang ikon Lucide
+
+  lucide.createIcons();
+}
+
+// Fungsi BARU untuk update angka follower di UI
+
+function updateFollowerCountUI(userId, change) {
+  // change bisa +1 atau -1
+
+  try {
+    const countEl = document.getElementById(
+      `profile-followers-count-${userId}`
+    );
+
+    if (countEl) {
+      let currentCount = parseInt(countEl.textContent, 10);
+
+      if (isNaN(currentCount)) currentCount = 0;
+
+      const newCount = Math.max(0, currentCount + change); // Pastikan tidak di bawah 0
+
+      countEl.textContent = newCount;
+    }
+  } catch (e) {
+    console.warn("Could not update follower count UI", e);
+  }
+}
+
+async function followUser(userId) {
+  try {
+    if (!window.currentUser?.id) {
+      showToast("Error", "Please login to follow users", "error");
+
+      return;
+    }
+
+    if (userId === window.currentUser.id) {
+      showToast("Error", "You cannot follow yourself", "error");
+
+      return;
+    }
+
+    // First update UI optimistically
+
+    updateFollowButton(userId, true);
+
+    updateFollowerCountUI(userId, 1); // <-- TAMBAHKAN INI (+1)
+
+    if (hasFollowsTable) {
+      const { error } = await supabase
+
+        .from("follows")
+
+        .insert({
+          follower_id: window.currentUser.id,
+
+          following_id: userId,
+        });
+
+      if (error) {
+        console.error("Error following user:", error);
+
+        // Revert UI on error
+
+        updateFollowButton(userId, false);
+
+        updateFollowerCountUI(userId, -1); // <-- TAMBAHKAN INI (Batal, -1)
+
+        if (error.code === "23505") {
+          // Unique violation
+
+          showToast("Info", "You are already following this user", "info");
+        } else {
+          showToast(
+            "Error",
+            "Could not follow user: " + error.message,
+            "error"
+          );
+        }
+
+        return;
+      }
+
+      // Update followers_count in profiles table (ini tetap jalan)
+
+      try {
+        const { data: prof, error: profErr } = await supabase
+
+          .from("profiles")
+
+          .select("followers_count")
+
+          .eq("id", userId)
+
+          .single();
+
+        if (!profErr && prof) {
+          const newCount = (prof.followers_count || 0) + 1;
+
+          await supabase
+            .from("profiles")
+            .update({ followers_count: newCount })
+            .eq("id", userId);
+        }
+      } catch (e) {
+        console.warn("Could not update followers_count:", e);
+      }
+
+      showToast("Success", "Successfully followed user", "success");
+    } else {
+      try {
+        const localFollows = JSON.parse(
+          localStorage.getItem("follows") || "[]"
+        );
+
+        // Check if already following
+
+        if (
+          localFollows.some(
+            (f) =>
+              f.follower_id === window.currentUser.id &&
+              f.following_id === userId
+          )
+        ) {
+          showToast("Info", "You are already following this user", "info");
+
+          return;
+        }
+
+        localFollows.push({
+          follower_id: window.currentUser.id,
+
+          following_id: userId,
+
+          created_at: new Date().toISOString(),
+        });
+
+        localStorage.setItem("follows", JSON.stringify(localFollows));
+
+        showToast(
+          "Info",
+          "Follow saved locally - server storage not available",
+          "info"
+        );
+      } catch (localErr) {
+        console.error("Error saving follow locally:", localErr);
+
+        // Revert UI on error
+
+        updateFollowButton(userId, false);
+
+        updateFollowerCountUI(userId, -1); // <-- TAMBAHKAN INI (Batal, -1)
+
+        showToast("Error", "Failed to follow user", "error");
+      }
+    }
+  } catch (err) {
+    console.error("Error following user:", err);
+
+    // Revert UI on error
+
+    updateFollowButton(userId, false);
+
+    showToast("Error", "Failed to follow user", "error");
+  }
+}
+
+// FUNGSI BARU (FIXED): Mengambil daftar followers (orang yang follow user ini)
+
+async function getFollowers(userId) {
+  if (!hasFollowsTable) return [];
+
+  try {
+    // 1. Ambil semua ID follower
+
+    const { data: follows, error: followsError } = await supabase
+
+      .from("follows")
+
+      .select("follower_id") // Hanya ambil ID-nya
+
+      .eq("following_id", userId);
+
+    if (followsError) throw followsError;
+
+    if (!follows || follows.length === 0) return [];
+
+    // 2. Ubah jadi array [id1, id2, id3]
+
+    const followerIds = follows.map((f) => f.follower_id);
+
+    // 3. Ambil semua profil yang ID-nya ada di array itu
+
+    const { data: profiles, error: profileError } = await supabase
+
+      .from("profiles")
+
+      .select("id, full_name, avatar_url")
+
+      .in("id", followerIds); // Gunakan '.in()'
+
+    if (profileError) throw profileError;
+
+    return profiles; // Kembalikan daftar profil
+  } catch (err) {
+    console.error("Error fetching followers:", err);
+
+    return [];
+  }
+}
+
+// FUNGSI BARU (FIXED): Mengambil daftar following (orang yang di-follow user ini)
+
+async function getFollowing(userId) {
+  if (!hasFollowsTable) return [];
+
+  try {
+    // 1. Ambil semua ID yang di-follow
+
+    const { data: follows, error: followsError } = await supabase
+
+      .from("follows")
+
+      .select("following_id") // Hanya ambil ID-nya
+
+      .eq("follower_id", userId);
+
+    if (followsError) throw followsError;
+
+    if (!follows || follows.length === 0) return [];
+
+    // 2. Ubah jadi array [id1, id2, id3]
+
+    const followingIds = follows.map((f) => f.following_id);
+
+    // 3. Ambil semua profil yang ID-nya ada di array itu
+
+    const { data: profiles, error: profileError } = await supabase
+
+      .from("profiles")
+
+      .select("id, full_name, avatar_url")
+
+      .in("id", followingIds); // Gunakan '.in()'
+
+    if (profileError) throw profileError;
+
+    return profiles; // Kembalikan daftar profil
+  } catch (err) {
+    console.error("Error fetching following list:", err);
+
+    return [];
+  }
+}
+
+// FUNGSI BARU: Merender daftar user (followers/following) ke dalam container
+
+async function renderFollowList(
+  containerId,
+  userList,
+  emptyMessage,
+  showAll = false
+) {
+  const container = document.getElementById(containerId);
+
+  if (!container) return;
+
+  if (!userList || userList.length === 0) {
+    container.innerHTML = `<p class="text-slate-400 text-xs text-center p-4">${emptyMessage}</p>`;
+
+    return;
+  }
+
+  // Jika tidak diminta menampilkan semua, dan ada lebih dari 1 user,
+
+  // tampilkan hanya preview (1 item) dan tombol "Lihat Semua".
+
+  let toRender = userList;
+
+  const isPreview = !showAll && Array.isArray(userList) && userList.length > 1;
+
+  if (isPreview) toRender = userList.slice(0, 1);
+
+  // Ambil semua URL avatar secara paralel
+
+  const listHtml = await Promise.all(
+    toRender.map(async (user) => {
+      const avatarUrl = await getAvatarUrl(user.avatar_url);
+
+      const name = user.full_name || "Anonymous";
+
+      // *** LOGIKA AVATAR BARU ***
+
+      const avatarHTML =
+        avatarUrl && avatarUrl !== "/default-avatar.png"
+          ? `<img src="${avatarUrl}" alt="${sanitizeHTML(
+              name
+            )}" class="w-full h-full object-cover" onerror="this.onerror=null;this.src='/default-avatar.png'">`
+          : `<div class="w-full h-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-white font-medium">
+
+                   ${(name || "A")[0].toUpperCase()}
+
+                 </div>`;
+
+      // *** AKHIR LOGIKA AVATAR BARU ***
+
+      return `
+
+            <div class="flex items-center justify-between p-2 rounded-lg hover:bg-slate-700/50">
+
+                <div class="flex items-center gap-3">
+
+
+
+                    <div class="h-9 w-9 rounded-full bg-slate-900 overflow-hidden flex items-center justify-center text-white flex-shrink-0">
+
+                      ${avatarHTML}
+
+                    </div>
+
+                    <span class="text-sm text-slate-100 font-medium">${sanitizeHTML(
+                      name
+                    )}</span>
+
+                </div>
+
+                <button class="view-profile-btn text-xs bg-cyan-600/90 text-white px-2.5 py-1.5 rounded-md hover:bg-cyan-500 font-medium" data-user-id="${
+                  user.id
+                }">View</button>
+
+            </div>
+
+          `;
+    })
+  );
+
+  // Jika preview, tambahkan tombol "Lihat Semua" di bawah item
+
+  if (isPreview) {
+    container.innerHTML = `
+
+            <div class="space-y-1">${listHtml.join("")}</div>
+
+            <div class="pt-2">
+
+              <button id="lihatSemuaBtn-${containerId}" class="w-full text-xs bg-slate-700/40 text-slate-200 px-3 py-2 rounded-md hover:bg-slate-700">Lihat Semua</button>
+
+            </div>
+
+          `;
+  } else {
+    container.innerHTML = `<div class="space-y-1">${listHtml.join("")}</div>`;
+  }
+
+  // Tambahkan event listener untuk tombol "View"
+
+  container.querySelectorAll(".view-profile-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+
+      const targetUserId = e.currentTarget.dataset.userId;
+
+      const currentModal = document.getElementById("profileModal");
+
+      if (currentModal) currentModal.remove();
+
+      showUserProfilePopup(targetUserId);
+    });
+  });
+
+  // Jika kita berada di mode preview, tambahkan handler untuk tombol "Lihat Semua"
+
+  if (!showAll && Array.isArray(userList) && userList.length > 1) {
+    const lihatBtn = document.getElementById(`lihatSemuaBtn-${containerId}`);
+
+    if (lihatBtn) {
+      lihatBtn.addEventListener("click", async (e) => {
+        e.preventDefault();
+
+        // Render ulang daftar penuh
+
+        await renderFollowList(containerId, userList, emptyMessage, true);
+      });
+    }
+  }
+}
+
+async function unfollowUser(userId) {
+  try {
+    if (!window.currentUser?.id) {
+      showToast("Error", "Please login to unfollow users", "error");
+
+      return;
+    }
+
+    if (userId === window.currentUser.id) {
+      showToast("Error", "Invalid operation", "error");
+
+      return;
+    }
+
+    // First update UI optimistically
+
+    updateFollowButton(userId, false);
+
+    updateFollowerCountUI(userId, -1); // <-- TAMBAHKAN INI (-1)
+
+    if (hasFollowsTable) {
+      const { error } = await supabase
+
+        .from("follows")
+
+        .delete()
+
+        .eq("follower_id", window.currentUser.id)
+
+        .eq("following_id", userId);
+
+      if (error) {
+        console.error("Error unfollowing user:", error);
+
+        // Revert UI on error
+
+        updateFollowButton(userId, true);
+
+        updateFollowerCountUI(userId, 1); // <-- TAMBAHKAN INI (Batal, +1)
+
+        showToast(
+          "Error",
+          "Could not unfollow user: " + error.message,
+          "error"
+        );
+
+        return;
+      }
+
+      // Decrement followers_count in profiles table (ini tetap jalan)
+
+      try {
+        const { data: prof, error: profErr } = await supabase
+
+          .from("profiles")
+
+          .select("followers_count")
+
+          .eq("id", userId)
+
+          .single();
+
+        if (!profErr && prof) {
+          const newCount = Math.max(0, (prof.followers_count || 0) - 1);
+
+          await supabase
+            .from("profiles")
+            .update({ followers_count: newCount })
+            .eq("id", userId);
+        }
+      } catch (e) {
+        console.warn("Could not decrement followers_count:", e);
+      }
+
+      showToast("Success", "Successfully unfollowed user", "success");
+    } else {
+      try {
+        const localFollows = JSON.parse(
+          localStorage.getItem("follows") || "[]"
+        );
+
+        // Check if actually following
+
+        if (
+          !localFollows.some(
+            (f) =>
+              f.follower_id === window.currentUser.id &&
+              f.following_id === userId
+          )
+        ) {
+          showToast("Info", "You are not following this user", "info");
+
+          return;
+        }
+
+        const filtered = localFollows.filter(
+          (f) =>
+            !(
+              f.follower_id === window.currentUser.id &&
+              f.following_id === userId
+            )
+        );
+
+        localStorage.setItem("follows", JSON.stringify(filtered));
+
+        showToast(
+          "Info",
+          "Unfollow saved locally - server storage not available",
+          "info"
+        );
+      } catch (localErr) {
+        console.error("Error saving unfollow locally:", localErr);
+
+        // Revert UI on error
+
+        updateFollowButton(userId, true);
+
+        showToast("Error", "Could not save unfollow data locally", "error");
+      }
+    }
+  } catch (err) {
+    console.error("Error unfollowing user:", err);
+
+    // Revert UI on error
+
+    updateFollowButton(userId, true);
+
+    updateFollowerCountUI(userId, 1); // <-- TAMBAHKAN INI (Batal, +1)
+
+    showToast("Error", "Failed to unfollow user", "error");
+  }
+}
+
+async function isFollowing(userId) {
+  try {
+    if (hasFollowsTable) {
+      // *** PERBAIKAN: Ganti .single() menjadi .maybeSingle() ***
+
+      // .single() melempar error jika tidak ada data, .maybeSingle() tidak.
+
+      const { data, error } = await supabase
+
+        .from("follows")
+
+        .select("follower_id")
+
+        .eq("follower_id", window.currentUser?.id)
+
+        .eq("following_id", userId)
+
+        .maybeSingle(); // <-- GANTI KE INI
+
+      // Jika ada error selain "data tidak ditemukan", baru lempar error
+
+      if (error) throw error;
+
+      // Jika data ada (tidak null), berarti 'is following'
+
+      return !!data;
+    } else {
+      const localFollows = JSON.parse(localStorage.getItem("follows") || "[]");
+
+      return localFollows.some(
+        (f) =>
+          f.follower_id === window.currentUser?.id && f.following_id === userId
+      );
+    }
+  } catch (err) {
+    console.error("Error checking follow status:", err);
+
+    return false;
+  }
+}
+
+//sanitize HTML untuk mencegah XSS
+
+function sanitizeHTML(str) {
+  const div = document.createElement("div");
+
+  div.textContent = str;
+
+  return div.innerHTML;
+}
+
+// Filter kata kasar
+
+const badWords = [
+  "tolol",
+  "bacot",
+  "anjing",
+  "asu",
+  "fuckyou",
+  "babi",
+  "bapak kau",
+  "bujang",
+  "kontol",
+  "memek",
+  "perek",
+  "jancuk",
+];
+
+function filterBadWords(content) {
+  let filteredContent = content;
+
+  let hasBadWord = false;
+
+  const placeholder = "__BAD_WORD__"; // Placeholder untuk kata kasar
+
+  // Ganti kata kasar dengan placeholder
+
+  badWords.forEach((word) => {
+    const regex = new RegExp(`\\b${word}\\b`, "gi");
+
+    if (regex.test(filteredContent)) {
+      hasBadWord = true;
+
+      filteredContent = filteredContent.replace(regex, placeholder);
+    }
+  });
+
+  if (hasBadWord) {
+    showToast(
+      "Warning",
+      "Rude words have been removed from your message!",
+      "info"
+    );
+  }
+
+  return filteredContent;
+}
+
+// Format waktu relatif
+
+function timeAgo(date) {
+  const now = new Date();
+
+  const seconds = Math.floor((now - new Date(date)) / 1000);
+
+  if (seconds < 60) return `${seconds} detik lalu`;
+
+  const minutes = Math.floor(seconds / 60);
+
+  if (minutes < 60) return `${minutes} menit lalu`;
+
+  const hours = Math.floor(minutes / 60);
+
+  if (hours < 24) return `${hours} jam lalu`;
+
+  return new Date(date).toLocaleDateString("id-ID");
+}
+
+// Validasi UUID
+
+function isValidUuid(uuid) {
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  return uuidRegex.test(uuid);
+}
+
+// Normalisasi struktur likes
+
+function normalizeLikes(likes) {
+  if (!Array.isArray(likes)) {
+    return [];
+  }
+
+  return likes.filter(
+    (like) => like && like.type && like.user_id && isValidUuid(like.user_id)
+  );
+}
+
+// Mendapatkan jumlah like per tipe
+
+function getLikesCount(likes, type) {
+  return normalizeLikes(likes).filter((like) => like.type === type).length;
+}
+
+// Fungsi untuk menambahkan satu pesan admin ke DOM
+
+async function appendAdminMessage(msg) {
+  const adminMessages = document.getElementById("adminMessages");
+
+  if (!adminMessages) return;
+
+  const adminMessageEl = document.createElement("div");
+
+  adminMessageEl.className =
+    "mb-4 last:mb-0 bg-gradient-to-br from-slate-800/30 to-slate-900/20 border border-slate-700/40 rounded-xl p-4 text-slate-100 shadow-md animate-fade-in";
+
+  adminMessageEl.setAttribute("data-admin-message-id", msg.id);
+
+  const timestamp = new Date(msg.created_at).toLocaleString("id-ID", {
+    hour: "numeric",
+    minute: "numeric",
+    hour12: true,
+
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+
+  const sanitizedContent = sanitizeHTML(msg.content);
+
+  adminMessageEl.innerHTML = `
+
+  <div class="flex items-start gap-4 p-4 bg-gradient-to-br from-slate-900/40 to-slate-950/30 rounded-xl border border-slate-800/50 shadow-lg shadow-slate-900/20">
+
+    <div class="flex-shrink-0 p-2.5 bg-gradient-to-br from-slate-700 to-slate-800 rounded-full shadow-md">
+
+      <i data-lucide="shield-alert" class="h-6 w-6 text-white"></i>
+
+    </div>
+
+    <div class="flex-1 space-y-2">
+
+      <div class="flex items-center justify-between">
+
+        <div class="font-medium text-white/90 text-lg flex items-center gap-2">
+
+          <i data-lucide="verified" class="h-5 w-5 text-cyan-300"></i>
+
+          <span class="bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-slate-200">Official Announcement</span>
+
+        </div>
+
+        <div class="text-xs text-cyan-200/80 flex items-center bg-slate-900/30 px-2 py-1 rounded-full">
+
+          <i data-lucide="clock" class="h-3 w-3 mr-1.5"></i>
+
+          <span>${timestamp}</span>
+
+        </div>
+
+      </div>
+
+      <div class="pl-1 text-white/90 leading-relaxed text-base font-light space-y-2">
+
+        ${sanitizedContent
+          .split("\n")
+          .map(
+            (p) =>
+              `<p class="flex items-start gap-2"><i data-lucide="chevron-right" class="h-4 w-4 mt-1 flex-shrink-0 text-cyan-300/80"></i><span>${p}</span></p>`
+          )
+          .join("")}
+
+      </div>
+
+      <div class="pt-2 flex items-center gap-3 text-xs text-cyan-300/70">
+
+        <div class="flex items-center">
+
+          <i data-lucide="info" class="h-3 w-3 mr-1.5"></i>
+
+          <span>Admin Team</span>
+
+        </div>
+
+        <a href="https://twitter.com/aqula_app " target="_blank" rel="noopener noreferrer" class="flex items-center">
+
+          <i data-lucide="twitter" class="h-3 w-3 mr-1.5"></i>
+
+          <span>@aqula_app</span>
+
+        </a>
+
+        <a href="https://www.youtube.com/@aqulaapp" target="_blank" rel="noopener noreferrer" class="flex items-center">
+
+          <i data-lucide="youtube" class="h-3 w-3 mr-1.5 text-red-500"></i>
+
+          <span>@aqulaapp</span>
+
+        </a>
+
+      </div>
+
+    </div>
+
+  </div>`;
+
+  adminMessages.appendChild(adminMessageEl);
+
+  lucide.createIcons();
+}
+
+// Fungsi untuk menambahkan satu pesan ke DOM
+
+// Fungsi untuk mendapatkan URL avatar yang valid
+
+async function getAvatarUrl(avatarPath) {
+  if (!avatarPath) return "/default-avatar.png";
+
+  try {
+    // Cek apakah path sudah berupa URL lengkap
+
+    if (avatarPath.startsWith("http")) {
+      return avatarPath;
+    }
+
+    // Jika menggunakan Supabase Storage
+
+    // Pastikan path tidak diawali slash
+
+    let path = avatarPath;
+
+    if (path.startsWith("/")) path = path.substring(1);
+
+    // Jika path disimpan dengan folder 'avatars/...' hapus prefix itu
+
+    if (path.startsWith("avatars/")) path = path.replace("avatars/", "");
+
+    const { data } = await supabase.storage
+
+      .from("avatars")
+
+      .getPublicUrl(path);
+
+    if (data?.publicUrl) {
+      // Return the public URL with cache-busting param; the <img> tags include onerror fallback
+
+      return `${data.publicUrl}?t=${Date.now()}`;
+    }
+
+    console.log("Avatar URL generated:", data?.publicUrl);
+
+    return "/default-avatar.png";
+  } catch (err) {
+    console.error("Error getting avatar URL:", err);
+
+    return "/default-avatar.png";
+  }
+}
+
+async function showUserProfilePopup(userId) {
+  if (!userId) return;
+
+  const isSelfProfile = userId === window.currentUser?.id;
+
+  try {
+    // remove existing modal if any
+
+    document.getElementById("profileModal")?.remove();
+
+    // fetch profile
+
+    const { data: profile, error: profileError } = await supabase
+
+      .from("profiles")
+
+      .select("*")
+
+      .eq("id", userId)
+
+      .maybeSingle();
+
+    if (profileError) throw profileError;
+
+    if (!profile) throw new Error("Profile not found");
+
+    // resolve avatar URL
+
+    const avatarUrl = await getAvatarUrl(profile.avatar_url);
+
+    // follower / following counts (use helper functions which handle schema fallback)
+
+    const followersList = await getFollowers(userId).catch(() => []);
+
+    const followingList = await getFollowing(userId).catch(() => []);
+
+    const followersCount = followersList.length;
+
+    const followingCount = followingList.length;
+
+    // whether current user follows this profile
+
+    let amFollowing = false;
+
+    try {
+      amFollowing = !isSelfProfile && (await isFollowing(userId));
+    } catch (e) {
+      amFollowing = false;
+    }
+
+    const safeFullName = sanitizeHTML(profile.full_name || "Anonymous");
+
+    const safeUsername = sanitizeHTML(
+      profile.username || (userId ? userId.substring(0, 8) : "user")
+    );
+
+    const safeBio = sanitizeHTML(
+      profile.bio ||
+        (isSelfProfile ? "Click the edit button to add your bio!" : "")
+    );
+
+    const modalHtml = `
+
+          <div class="fixed inset-0 flex items-center justify-center z-50 p-4" id="profileModal">
+
+            <div class="fixed inset-0 backdrop-blur-sm bg-black/40"></div>
+
+
+
+            <div class="relative w-full max-w-sm z-10">
+
+              <button id="profileModalClose" class="absolute -top-12 right-0 text-slate-300 hover:text-white transition-all duration-300 bg-slate-800/80 backdrop-blur-md rounded-full p-2 z-20 hover:scale-110 border border-slate-700/60">
+
+                <i data-lucide="x" class="h-5 w-5"></i>
+
+              </button>
+
+
+
+              <div class="bg-gradient-to-br from-slate-800/90 to-slate-900/90 rounded-xl border border-slate-700/60 shadow-2xl overflow-hidden">
+
+                <div class="h-24 bg-gradient-to-r from-teal-500/20 via-cyan-500/20 to-blue-500/20 relative">
+
+                  <div class="absolute -bottom-12 left-1/2 transform -translate-x-1/2">
+
+                    <div class="relative">
+
+                      <div class="w-24 h-24 rounded-full p-1 shadow-2xl" style="background:linear-gradient(90deg,#14b8a6,#06b6d4);">
+
+                        <div class="w-full h-full rounded-full bg-slate-900 p-1 overflow-hidden">
+
+                          ${
+                            avatarUrl !== "/default-avatar.png"
+                              ? `<img src="${avatarUrl}" alt="${safeFullName}" class="w-full h-full rounded-full object-cover" onerror="this.onerror=null;this.src='/default-avatar.png'">`
+                              : `<div class="w-full h-full rounded-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-white text-2xl font-bold">${(safeFullName ||
+                                  "A")[0].toUpperCase()}</div>`
+                          }
+
+                        </div>
+
+                      </div>
+
+                      <div class="absolute -bottom-1 -right-1 bg-cyan-500 rounded-full border-2 border-slate-900 h-6 w-6 flex items-center justify-center">
+
+                        <i data-lucide="badge-check" class="h-4 w-4 text-white"></i>
+
+                      </div>
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+
+
+                <div class="pt-16 pb-6 px-6 flex flex-col items-center">
+
+                  <div class="text-center mb-4 w-full">
+
+                    <h2 class="text-2xl font-bold text-slate-100 mb-1">${safeFullName}</h2>
+
+                    <p class="text-cyan-300 font-medium mb-2 text-center">@${safeUsername}</p>
+
+                    <p id="profile-bio-text" class="text-slate-400 text-sm leading-relaxed text-center">${safeBio}</p>
+
+                    ${
+                      isSelfProfile
+                        ? `<button id="profile-bio-edit-btn" class="mt-2 text-cyan-400 text-xs font-medium flex items-center justify-center mx-auto hover:text-cyan-300"><i data-lucide="edit-2" class="h-3 w-3 mr-1"></i> Edit Bio</button>`
+                        : ""
+                    }
+
+                    <div id="profile-bio-editor" class="hidden mt-2 text-left w-full">
+
+                      <textarea id="profile-bio-input" class="w-full bg-slate-800 text-white rounded-lg p-2 text-sm border border-slate-700/50" rows="4">${sanitizeHTML(
+                        profile.bio || ""
+                      )}</textarea>
+
+                      <div class="flex justify-end gap-2 mt-2">
+
+                        <button id="profile-bio-cancel" class="text-xs text-slate-300 px-3 py-1 rounded-lg hover:bg-slate-700">Cancel</button>
+
+                        <button id="profile-bio-save" class="text-xs bg-cyan-600 text-white px-3 py-1 rounded-lg hover:bg-cyan-500 font-medium">Save</button>
+
+                      </div>
+
+                    </div>
+
+                  </div>
+
+
+
+                  <div class="flex justify-center items-center gap-6 mb-6 bg-slate-800/50 rounded-2xl p-4 border border-slate-700/50 w-full">
+
+                    <div class="text-center">
+
+                      <div class="text-slate-100 font-bold text-xl">${
+                        profile.points || 0
+                      }</div>
+
+                      <div class="text-cyan-300 text-xs font-medium mt-1">POINTS</div>
+
+                    </div>
+
+                    <div class="text-center">
+
+                      <div id="profile-followers-count-${userId}" class="text-slate-100 font-bold text-xl">${followersCount}</div>
+
+                      <div class="text-teal-300 text-xs font-medium mt-1">FOLLOWERS</div>
+
+                    </div>
+
+                    <div class="text-center">
+
+                      <div class="text-slate-100 font-bold text-xl">${
+                        profile.booster || "None"
+                      }</div>
+
+                      <div class="text-blue-300 text-xs font-medium mt-1">BOOSTER</div>
+
+                    </div>
+
+                  </div>
+
+
+
+                  <div class="w-full mb-6 border-t border-slate-700/60 pt-4">
+
+                    <div class="flex mb-2 border-b border-slate-700/60">
+
+                      ${
+                        isSelfProfile
+                          ? `<button id="show-inbox-btn" class="follow-tab-btn flex-1 pb-2 text-sm font-medium text-white border-b-2 border-cyan-400" data-target="inbox-list-container">Inbox</button>`
+                          : ""
+                      }
+
+                      <button id="show-followers-btn" class="follow-tab-btn flex-1 pb-2 text-sm font-medium ${
+                        isSelfProfile
+                          ? "text-slate-400 border-transparent"
+                          : "text-white border-cyan-400"
+                      }" data-target="follower-list-container">Followers (${followersCount})</button>
+
+                      <button id="show-following-btn" class="follow-tab-btn flex-1 pb-2 text-sm font-medium text-slate-400 border-b-2 border-transparent" data-target="following-list-container">Following (${followingCount})</button>
+
+                    </div>
+
+
+
+                    <div class="relative max-h-60 overflow-y-auto">
+
+                      ${
+                        isSelfProfile
+                          ? `<div id="inbox-list-container" class="follow-list-content" data-loaded="false"></div>`
+                          : ""
+                      }
+
+                      <div id="follower-list-container" class="follow-list-content ${
+                        isSelfProfile ? "hidden" : ""
+                      }" data-loaded="false"></div>
+
+                      <div id="following-list-container" class="follow-list-content hidden" data-loaded="false"></div>
+
+                    </div>
+
+                  </div>
+
+
+
+                  <div class="space-y-3 w-full">
+
+                    <button id="followBtn-${userId}" class="w-full py-3.5 px-4 rounded-xl font-semibold transition-all duration-300 ${
+      amFollowing
+        ? "bg-gradient-to-r from-slate-700 to-slate-800 text-slate-200 border border-slate-600/50 shadow-lg"
+        : "bg-gradient-to-r from-teal-500 to-cyan-600 text-white shadow-lg"
+    }">
+
+                      <div class="flex items-center justify-center space-x-2">
+
+                        <i data-lucide="${
+                          amFollowing ? "user-check" : "user-plus"
+                        }" class="h-4 w-4"></i>
+
+                        <span>${
+                          amFollowing ? "Following" : "Follow User"
+                        }</span>
+
+                      </div>
+
+                    </button>
+
+
+
+                    <button id="sendMsgBtn-${userId}" class="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-semibold shadow-lg transition-all duration-300">
+
+                      <div class="flex items-center justify-center space-x-2">
+
+                        <i data-lucide="send" class="h-4 w-4"></i>
+
+                        <span>Send Message</span>
+
+                      </div>
+
+                    </button>
+
+
+
+                    <button id="callBtn-${userId}" class="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 text-white font-semibold shadow-lg transition-all duration-300">
+
+                      <div class="flex items-center justify-center space-x-2">
+
+                        <i data-lucide="phone" class="h-4 w-4"></i>
+
+                        <span>Voice Call</span>
+
+                      </div>
+
+                    </button>
+
+                  </div>
+
+                </div>
+
+
+
+                <div class="bg-slate-800/50 border-t border-slate-700/60 px-6 py-4">
+
+                  <div class="flex justify-between text-xs text-slate-400">
+
+                    <span>Joined ${new Date(
+                      profile.created_at
+                    ).toLocaleDateString()}</span>
+
+                    <span class="flex items-center"><span class="w-2 h-2 bg-green-500 rounded-full mr-1.5"></span>Active now</span>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+
+
+              <div class="absolute -z-10 top-1/4 -left-10 w-20 h-20 bg-cyan-400/10 rounded-full blur-xl"></div>
+
+              <div class="absolute -z-10 bottom-1/4 -right-10 w-20 h-20 bg-blue-400/10 rounded-full blur-xl"></div>
+
+            </div>
+
+          </div>
+
+        `;
+
+    document.body.insertAdjacentHTML("beforeend", modalHtml);
+
+    lucide.createIcons();
+
+    const modal = document.getElementById("profileModal");
+
+    if (!modal) return;
+
+    // entrance animation
+
+    modal.style.opacity = "0";
+
+    modal.style.transform = "scale(0.96)";
+
+    setTimeout(() => {
+      modal.style.transition = "all 180ms ease";
+
+      modal.style.opacity = "1";
+
+      modal.style.transform = "scale(1)";
+    }, 20);
+
+    // close handlers
+
+    document
+      .getElementById("profileModalClose")
+      ?.addEventListener("click", () => modal.remove());
+
+    modal
+      .querySelector(".fixed.inset-0.backdrop-blur-sm")
+      ?.addEventListener("click", () => modal.remove());
+
+    // bio edit handlers
+
+    if (isSelfProfile) {
+      document
+        .getElementById("profile-bio-edit-btn")
+        ?.addEventListener("click", () => toggleBioEditor(true));
+
+      document
+        .getElementById("profile-bio-cancel")
+        ?.addEventListener("click", () => toggleBioEditor(false));
+
+      document
+        .getElementById("profile-bio-save")
+        ?.addEventListener("click", saveProfileBio);
+    }
+
+    // follow button
+
+    document
+      .getElementById(`followBtn-${userId}`)
+      ?.addEventListener("click", async (e) => {
+        e.preventDefault();
+
+        await toggleFollow(userId);
+
+        // update follower count display optimistically
+
+        const el = document.getElementById(`profile-followers-count-${userId}`);
+
+        if (el) {
+          const current = parseInt(el.textContent || "0", 10) || 0;
+
+          el.textContent = amFollowing ? Math.max(0, current - 1) : current + 1;
+        }
+      });
+
+    // send message button
+
+    document
+      .getElementById(`sendMsgBtn-${userId}`)
+      ?.addEventListener("click", () => {
+        modal.remove();
+
+        startDirectMessage(userId);
+      });
+
+    // call button
+
+    document
+      .getElementById(`callBtn-${userId}`)
+      ?.addEventListener("click", () => {
+        modal.remove();
+
+        startCall(userId, profile.full_name || "Anonymous", avatarUrl);
+      });
+
+    // tab logic (lazy load)
+
+    const tabs = modal.querySelectorAll(".follow-tab-btn");
+
+    const lists = modal.querySelectorAll(".follow-list-content");
+
+    const loadList = async (targetId) => {
+      const target = document.getElementById(targetId);
+
+      if (!target) return;
+
+      if (target.dataset.loaded === "true") return;
+
+      target.innerHTML = `<p class="text-slate-400 text-xs text-center p-4">Loading...</p>`;
+
+      target.dataset.loaded = "true";
+
+      try {
+        if (targetId === "follower-list-container") {
+          const users = await getFollowers(userId);
+
+          await renderFollowList(targetId, users, "No followers yet.");
+        } else if (targetId === "following-list-container") {
+          const users = await getFollowing(userId);
+
+          await renderFollowList(targetId, users, "Not following anyone yet.");
+        } else if (targetId === "inbox-list-container") {
+          await renderConversations(targetId);
+
+          try {
+            const convs = await getConversations();
+
+            await Promise.all(
+              (convs || []).map((c) => markConversationRead(c.userId))
+            );
+
+            updateInboxBadge("clear");
+          } catch (e) {
+            /* ignore */
+          }
+        }
+      } catch (err) {
+        target.innerHTML = `<p class="text-rose-400 text-xs text-center p-4">Failed to load list.</p>`;
+      }
+    };
+
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", async () => {
+        // style
+
+        tabs.forEach((t) => {
+          t.classList.remove("text-white", "border-cyan-400");
+          t.classList.add("text-slate-400", "border-transparent");
+        });
+
+        tab.classList.add("text-white", "border-cyan-400");
+
+        tab.classList.remove("text-slate-400", "border-transparent");
+
+        // show/hide lists
+
+        const targetId = tab.dataset.target;
+
+        lists.forEach((l) => l.classList.add("hidden"));
+
+        document.getElementById(targetId)?.classList.remove("hidden");
+
+        await loadList(targetId);
+      });
+    });
+
+    // automatically open first meaningful tab
+
+    (async () => {
+      let firstTabId = null;
+
+      if (isSelfProfile && document.getElementById("inbox-list-container"))
+        firstTabId = "inbox-list-container";
+      else if (document.getElementById("follower-list-container"))
+        firstTabId = "follower-list-container";
+      else if (document.getElementById("following-list-container"))
+        firstTabId = "following-list-container";
+
+      if (!firstTabId) return;
+
+      // activate corresponding tab button
+
+      const targetBtn = Array.from(tabs).find(
+        (t) => t.dataset.target === firstTabId
+      );
+
+      if (targetBtn) targetBtn.click();
+      else {
+        // fallback: show the list directly and load
+
+        lists.forEach((l) => l.classList.add("hidden"));
+
+        document.getElementById(firstTabId)?.classList.remove("hidden");
+
+        await loadList(firstTabId);
+      }
+    })().catch(() => {
+      /* ignore */
+    });
+  } catch (err) {
+    console.error("Error showing profile:", err);
+
+    showToast("Error", "Failed to load user profile", "error");
+  }
+}
+
+// Fungsi untuk menampilkan/menyembunyikan editor bio
+
+function toggleBioEditor(show) {
+  try {
+    const textEl = document.getElementById("profile-bio-text");
+
+    const editBtn = document.getElementById("profile-bio-edit-btn");
+
+    const editorEl = document.getElementById("profile-bio-editor");
+
+    if (show) {
+      // Sembunyikan teks bio dan tombol edit
+
+      textEl.style.display = "none";
+
+      if (editBtn) editBtn.style.display = "none";
+
+      // Tampilkan editor
+
+      editorEl.style.display = "block";
+
+      document.getElementById("profile-bio-input").focus();
+    } else {
+      // Tampilkan lagi teks bio dan tombol edit
+
+      textEl.style.display = "block";
+
+      if (editBtn) editBtn.style.display = "flex"; // Tombol edit menggunakan 'flex'
+
+      // Sembunyikan editor
+
+      editorEl.style.display = "none";
+    }
+  } catch (e) {
+    console.error("Error toggling bio editor:", e);
+  }
+}
+
+// Fungsi untuk menyimpan bio baru ke Supabase
+
+async function saveProfileBio() {
+  const input = document.getElementById("profile-bio-input");
+
+  if (!input) return;
+
+  const newBio = input.value;
+
+  const currentUserId = window.currentUser?.id;
+
+  if (!currentUserId) {
+    showToast("Error", "You must be logged in.", "error");
+
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase
+
+      .from("profiles")
+
+      .update({ bio: newBio })
+
+      .eq("id", currentUserId)
+
+      .select()
+
+      .single();
+
+    if (error) throw error;
+
+    // Perbarui teks bio di UI
+
+    const bioTextElement = document.getElementById("profile-bio-text");
+
+    bioTextElement.innerText =
+      newBio || "Click the edit button to add your bio!";
+
+    // Perbarui juga data profil di memori
+
+    if (window.currentUser.profile) {
+      window.currentUser.profile.bio = newBio;
+    }
+
+    toggleBioEditor(false); // Sembunyikan editor
+
+    showToast("Success", "Bio updated successfully!", "success");
+  } catch (err) {
+    console.error("Error saving bio:", err);
+
+    showToast("Error", "Failed to save bio.", "error");
+  }
+}
+
+// Toggle follow status
+
+async function toggleFollow(userId) {
+  const isCurrentlyFollowing = await isFollowing(userId);
+
+  if (isCurrentlyFollowing) {
+    await unfollowUser(userId);
+  } else {
+    await followUser(userId);
+  }
+}
+
+// Start direct message
+
+function startDirectMessage(userId) {
+  document.getElementById("profileModal")?.remove();
+
+  showDirectMessageModal(userId);
+}
+
+// Show direct message modal
+
+async function showDirectMessageModal(userId) {
+  try {
+    const { data: user, error } = await supabase
+
+      .from("profiles")
+
+      .select("full_name, avatar_url") // <-- PERBAIKAN: 'username' dihapus dari sini
+
+      .eq("id", userId)
+
+      .single();
+
+    if (error) throw error;
+
+    // resolve avatar URL for header (use default on error)
+
+    let userPublicAvatar = "/default-avatar.png";
+
+    try {
+      userPublicAvatar = user.avatar_url
+        ? await getAvatarUrl(user.avatar_url)
+        : "/default-avatar.png";
+    } catch (e) {
+      userPublicAvatar = "/default-avatar.png";
+    }
+
+    // *** LOGIKA AVATAR BARU ***
+
+    const name = user.full_name || "Anonymous";
+
+    const avatarHTML =
+      userPublicAvatar && userPublicAvatar !== "/default-avatar.png"
+        ? `<img src="${userPublicAvatar}" alt="${name}" class="w-full h-full object-cover" onerror="this.onerror=null;this.src='/default-avatar.png'">`
+        : `<div class="w-full h-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-white font-medium">
+
+                   ${(name || "A")[0].toUpperCase()}
+
+                 </div>`;
+
+    // *** AKHIR LOGIKA AVATAR BARU ***
+
+    // *** DESAIN ULANG MODAL DM ***
+
+    const modalHtml = `
+
+            <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm" id="dmModal">
+
+              <div class="bg-gradient-to-br from-slate-800/90 to-slate-900/90 rounded-xl p-6 max-w-xl w-full mx-4 shadow-2xl shadow-cyan-500/10 border border-slate-700/60">
+
+                <div class="relative">
+
+                  <button class="absolute right-0 top-0 text-slate-400 hover:text-slate-200 transition-colors p-1 rounded-full hover:bg-slate-700/50" 
+
+                          onclick="document.getElementById('dmModal').remove()">
+
+                    <i data-lucide="x" class="h-5 w-5"></i>
+
+                  </button>
+
+                  
+
+                  <div class="flex items-center space-x-3 mb-4 pb-4 border-b border-slate-700/60">
+
+                    
+
+                    <div class="w-10 h-10 rounded-full bg-slate-900 overflow-hidden flex items-center justify-center text-white flex-shrink-0">
+
+                      ${avatarHTML}
+
+                    </div>
+
+                    <div>
+
+                      <h3 class="font-semibold text-slate-100">${name}</h3>
+
+                      <p class="text-xs text-slate-400/80">@${(
+                        userId || ""
+                      ).substring(0, 8)}</p> </div>
+
+                  </div>
+
+                  
+
+                  <div id="dmMessages-${userId}" class="h-96 overflow-y-auto mb-4 space-y-3 p-4 bg-slate-900/70 rounded-lg border border-slate-700/50 shadow-inner">
+
+                    </div>
+
+                  
+
+                  <div class="flex space-x-2">
+
+                    <input type="text" 
+
+                           id="dmInput-${userId}"
+
+                           placeholder="Type your message..." 
+
+                           class="flex-1 bg-slate-800 text-white rounded-lg px-4 py-2 border border-slate-700/50 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
+
+                    <button onclick="sendDM('${userId}')"
+
+                            class="px-4 py-2 bg-cyan-600/90 hover:bg-cyan-500 text-white rounded-lg flex items-center shadow-lg shadow-cyan-500/20 transition-all">
+
+                      <i data-lucide="send" class="h-5 w-5"></i>
+
+                    </button>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+
+          `;
+
+    // *** DESAIN ULANG SELESAI ***
+
+    document.body.insertAdjacentHTML("beforeend", modalHtml);
+
+    lucide.createIcons();
+
+    // Load existing messages
+
+    await loadDirectMessages(userId);
+
+    // mark messages as read for this conversation (if supported)
+
+    try {
+      await markConversationRead(userId);
+    } catch (e) {
+      /* ignore */
+    }
+
+    // ensure conversations UI is updated if inbox is open
+
+    try {
+      await refreshConversationsUI();
+    } catch (e) {
+      /* ignore */
+    }
+
+    // Setup enter key handler
+
+    const input = document.getElementById(`dmInput-${userId}`);
+
+    input.addEventListener("keypress", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+
+        sendDM(userId);
+      }
+    });
+
+    // Focus input
+
+    input.focus();
+  } catch (err) {
+    console.error("Error showing DM modal:", err);
+
+    showToast("Error", "Failed to open chat", "error");
+  }
+}
+
+// Send direct message
+
+async function sendDM(userId) {
+  const input = document.getElementById(`dmInput-${userId}`);
+
+  const content = input.value.trim();
+
+  if (!content) return;
+
+  input.value = "";
+
+  await sendDirectMessage(userId, content);
+
+  // refresh inbox/conversations list so sender sees the conversation immediately
+
+  try {
+    await refreshConversationsUI();
+  } catch (e) {
+    console.warn("Could not refresh conversations after send:", e);
+  }
+}
+
+// Load direct messages
+
+async function loadDirectMessages(userId) {
+  try {
+    // *** FIX: Cek in-memory cache dulu ***
+
+    // Cache ini seharusnya sudah diisi oleh getConversations() / tryFetchConversationsFallback()
+
+    if (directMessages[userId] && directMessages[userId].length > 0) {
+      console.debug(
+        "loadDirectMessages (FIXED): using pre-populated cache for",
+        userId
+      );
+
+      updateDirectMessageUI(userId); // Langsung render dari cache
+
+      return; // Selesai
+    }
+
+    // Jika cache kosong, baru lakukan fetch
+
+    if (hasDirectMessagesTable) {
+      // 1. Coba kueri .or()
+
+      const orExpr = `${dmSenderCol}.eq.${window.currentUser?.id},${dmReceiverCol}.eq.${window.currentUser?.id}`;
+
+      const { data, error } = await supabase
+
+        .from("direct_messages")
+
+        .select("*")
+
+        .or(orExpr)
+
+        .order("created_at", { ascending: true });
+
+      console.debug(
+        "loadDirectMessages (FIXED): query orExpr=",
+        orExpr,
+        "rows=",
+        Array.isArray(data) ? data.length : data,
+        "error=",
+        error || null
+      );
+
+      if (error) throw error;
+
+      let filteredMessages = data.filter(
+        (m) =>
+          (m[dmSenderCol] === userId &&
+            m[dmReceiverCol] === window.currentUser?.id) ||
+          (m[dmSenderCol] === window.currentUser?.id &&
+            m[dmReceiverCol] === userId)
+      );
+
+      // 2. *** FALLBACK: Jika kueri .or() gagal (RLS bug), coba kueri terpisah ***
+
+      if (filteredMessages.length === 0 && !error) {
+        console.warn(
+          "loadDirectMessages (FIXED): .or() query returned 0 rows, trying split fallback..."
+        );
+
+        const me = window.currentUser.id;
+
+        // Pesan yang SAYA kirim ke DIA
+
+        const { data: sent, error: sentErr } = await supabase
+          .from("direct_messages")
+          .select("*")
+          .eq(dmSenderCol, me)
+          .eq(dmReceiverCol, userId);
+
+        // Pesan yang DIA kirim ke SAYA
+
+        const { data: recv, error: recvErr } = await supabase
+          .from("direct_messages")
+          .select("*")
+          .eq(dmSenderCol, userId)
+          .eq(dmReceiverCol, me);
+
+        if (!sentErr && !recvErr) {
+          const merged = (sent || []).concat(recv || []);
+
+          merged.sort(
+            (a, b) => new Date(a.created_at) - new Date(b.created_at)
+          );
+
+          filteredMessages = merged;
+
+          console.debug(
+            "loadDirectMessages (FIXED): fallback query got rows=",
+            merged.length
+          );
+        }
+      }
+
+      // *** END FALLBACK ***
+
+      directMessages[userId] = filteredMessages;
+    } else {
+      // Load from localStorage (fallback lama)
+
+      const localMessages = JSON.parse(
+        localStorage.getItem("directMessages") || "{}"
+      );
+
+      directMessages[userId] = localMessages[userId] || [];
+    }
+
+    updateDirectMessageUI(userId);
+  } catch (err) {
+    console.error("Error loading DMs:", err);
+
+    showToast("Error", "Failed to load messages", "error");
+  }
+}
+
+// --- Conversations / Inbox helpers ---
+
+// Aggregate conversations (server if available, otherwise local cache)
+
+async function getConversations() {
+  const me = window.currentUser?.id;
+
+  if (!me) return [];
+
+  const convMap = {};
+
+  try {
+    if (hasDirectMessagesTable) {
+      // 1. Coba kueri .or() standar
+
+      const orExpr = `${dmSenderCol}.eq.${me},${dmReceiverCol}.eq.${me}`;
+
+      const { data: orData, error: orError } = await supabase
+
+        .from("direct_messages")
+
+        .select("*")
+
+        .or(orExpr)
+
+        .order("created_at", { ascending: true });
+
+      if (!orError && Array.isArray(orData) && orData.length > 0) {
+        // Jika sukses, proses seperti biasa
+
+        console.debug(
+          "getConversations (FINAL FIX): .or() query succeeded, rows=",
+          orData.length
+        );
+
+        orData.forEach((m) => {
+          const other =
+            m[dmSenderCol] === me ? m[dmReceiverCol] : m[dmSenderCol];
+
+          if (!convMap[other]) convMap[other] = [];
+
+          convMap[other].push(m);
+        });
+      } else {
+        // 2. Kueri .or() GAGAL (kemungkinan RLS) atau kosong. Jalankan FALLBACK.
+
+        console.warn(
+          "getConversations (FINAL FIX): .or() query failed or empty, running fallback queries..."
+        );
+
+        // Ambil pesan yang SAYA TERIMA
+
+        const { data: recvData, error: recvErr } = await supabase
+
+          .from("direct_messages")
+          .select("*")
+          .eq(dmReceiverCol, me);
+
+        // Ambil pesan yang SAYA KIRIM
+
+        const { data: sendData, error: sendErr } = await supabase
+
+          .from("direct_messages")
+          .select("*")
+          .eq(dmSenderCol, me);
+
+        if (recvErr || sendErr) {
+          console.error(
+            "getConversations (FINAL FIX): Fallback queries failed.",
+            recvErr,
+            sendErr
+          );
+        } else {
+          // Gabungkan hasil fallback
+
+          const merged = (recvData || []).concat(sendData || []);
+
+          console.debug(
+            "getConversations (FINAL FIX): Fallback queries succeeded, merged rows=",
+            merged.length
+          );
+
+          merged.forEach((m) => {
+            const other =
+              m[dmSenderCol] === me ? m[dmReceiverCol] : m[dmSenderCol];
+
+            if (!convMap[other]) convMap[other] = [];
+
+            // Cek duplikat sebelum push
+
+            const exists = convMap[other].some((msg) => msg.id === m.id);
+
+            if (!exists) {
+              convMap[other].push(m);
+            }
+          });
+        }
+      }
+
+      // 3. (PENTING) Selalu gabungkan dengan cache in-memory (dari realtime)
+
+      Object.keys(directMessages || {}).forEach((otherId) => {
+        if (!convMap[otherId]) convMap[otherId] = [];
+
+        const existingIds = new Set(convMap[otherId].map((m) => m.id));
+
+        (directMessages[otherId] || []).forEach((m) => {
+          if (m && m.id && !existingIds.has(m.id)) {
+            convMap[otherId].push(m);
+
+            existingIds.add(m.id);
+          }
+        });
+      });
+    } else {
+      // 4. Fallback ke localStorage jika tabel tidak ada
+
+      const local = JSON.parse(localStorage.getItem("directMessages") || "{}");
+
+      Object.keys(local).forEach((k) => {
+        if (!convMap[k]) convMap[k] = [];
+
+        convMap[k].push(...local[k]);
+      });
+
+      // Gabungkan juga cache in-memory untuk localStorage
+
+      Object.keys(directMessages || {}).forEach((otherId) => {
+        if (!convMap[otherId]) convMap[otherId] = [];
+
+        const existingIds = new Set(convMap[otherId].map((m) => m.id));
+
+        (directMessages[otherId] || []).forEach((m) => {
+          if (m && m.id && !existingIds.has(m.id)) {
+            convMap[otherId].push(m);
+
+            existingIds.add(m.id);
+          }
+        });
+      });
+    }
+  } catch (err) {
+    console.error("Error fetching conversations:", err);
+  }
+
+  // Build array dan urutkan
+
+  const convs = Object.entries(convMap)
+    .map(([otherId, msgs]) => {
+      if (!Array.isArray(msgs) || msgs.length === 0) return null;
+
+      msgs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+      const last = msgs[0];
+
+      const unread = msgs.filter(
+        (m) =>
+          (m[dmReceiverCol] === me || m.receiver_id === me) &&
+          m.is_read === false
+      ).length;
+
+      return {
+        userId: otherId,
+        lastMessage: last,
+        messages: msgs,
+        lastAt: last?.created_at || 0,
+        unread,
+      };
+    })
+    .filter(Boolean) // Hapus entri yang null
+
+    .sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt));
+
+  console.debug(
+    "getConversations (FINAL FIX): processed map into convs count=",
+    convs.length
+  );
+
+  return convs;
+}
+
+// Render conversations list into a container element
+
+async function renderConversations(containerId = "profileConversations") {
+  const container = document.getElementById(containerId);
+
+  if (!container) return;
+
+  const hasContent = container.querySelector(".conv-item");
+
+  if (!hasContent) {
+    container.innerHTML =
+      '<div class="py-4 text-sm text-slate-400">Loading conversations...</div>';
+  }
+
+  try {
+    const convs = await getConversations();
+
+    if (!convs || convs.length === 0) {
+      container.innerHTML =
+        '<div class="py-4 text-sm text-slate-400">No conversations yet</div>';
+
+      return;
+    }
+
+    const ids = convs.map((c) => c.userId).filter(Boolean);
+
+    let profiles = [];
+
+    try {
+      const { data } = await supabase
+        .from("profiles")
+
+        .select("id,full_name,avatar_url")
+
+        .in("id", ids);
+
+      profiles = Array.isArray(data) ? data : [];
+
+      await Promise.all(
+        profiles.map(async (p) => {
+          try {
+            p._publicAvatar = p.avatar_url
+              ? await getAvatarUrl(p.avatar_url)
+              : "/default-avatar.png";
+          } catch (e) {
+            p._publicAvatar = "/default-avatar.png";
+          }
+        })
+      );
+    } catch (e) {
+      console.warn("Could not load participant profiles for inbox:", e);
+    }
+
+    const html = convs
+      .map((c) => {
+        const prof = profiles.find((p) => p.id === c.userId) || {};
+
+        const name = prof.full_name || c.userId.substring(0, 8);
+
+        // *** LOGIKA AVATAR BARU ***
+
+        const avatarHTML =
+          prof._publicAvatar && prof._publicAvatar !== "/default-avatar.png"
+            ? `<img src="${prof._publicAvatar}" alt="${sanitizeHTML(
+                name
+              )}" class="w-full h-full object-cover" onerror="this.onerror=null;this.src='/default-avatar.png'">`
+            : `<div class="w-full h-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-white text-lg font-bold">
+
+                     ${(prof.full_name || "A")[0].toUpperCase()}
+
+                   </div>`;
+
+        // *** AKHIR LOGIKA AVATAR BARU ***
+
+        const preview = sanitizeHTML(
+          c.lastMessage && c.lastMessage.content
+            ? c.lastMessage.content.length > 80
+              ? c.lastMessage.content.slice(0, 80) + "..."
+              : c.lastMessage.content
+            : "—"
+        );
+
+        const time = c.lastAt ? timeAgo(c.lastAt) : "";
+
+        const unreadBadge = c.unread
+          ? `<span class="ml-2 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">${c.unread}</span>`
+          : "";
+
+        return `
+
+              <button data-conv-user="${sanitizeHTML(
+                c.userId
+              )}" class="w-full text-left flex items-center gap-3 px-3 py-2 hover:bg-slate-800/40 rounded-lg conv-item">
+
+                
+
+                <div class="w-10 h-10 rounded-full bg-slate-900 overflow-hidden flex items-center justify-center text-white flex-shrink-0">
+
+                  ${avatarHTML}
+
+                </div>
+
+                <div class="flex-1 min-w-0">
+
+                  <div class="flex items-center justify-between">
+
+                    <div class="truncate font-medium text-white">${sanitizeHTML(
+                      name
+                    )}</div>
+
+                    <div class="text-xs text-slate-400">${sanitizeHTML(
+                      time
+                    )}${unreadBadge}</div>
+
+                  </div>
+
+                  <div class="text-sm text-slate-400 truncate">${preview}</div>
+
+                </div>
+
+              </button>
+
+            `;
+      })
+      .join("");
+
+    container.innerHTML = `<div class="space-y-2">${html}</div>`;
+
+    try {
+      const totalUnread = (convs || []).reduce(
+        (s, c) => s + (c.unread || 0),
+        0
+      );
+
+      updateInboxBadge(totalUnread);
+    } catch (e) {
+      console.warn(
+        "Could not update inbox badge after renderConversations:",
+        e
+      );
+    }
+
+    container.querySelectorAll(".conv-item").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const other = btn.dataset.convUser;
+
+        if (other) {
+          showDirectMessageModal(other);
+
+          document.getElementById("profileModal")?.remove();
+        }
+      });
+    });
+  } catch (err) {
+    console.error("Error rendering conversations:", err);
+
+    container.innerHTML =
+      '<div class="py-4 text-sm text-rose-400">Failed to load conversations</div>';
+  }
+}
+
+// Refresh the conversations UI if inbox modal is open
+
+async function refreshConversationsUI() {
+  if (document.getElementById("profileModal")) {
+    await renderConversations("profileConversations");
+  }
+}
+
+// Create a floating Inbox shortcut button (bottom-right)
+
+function createInboxShortcut() {
+  try {
+    // avoid duplicate
+
+    if (document.getElementById("inboxShortcutBtn")) return;
+
+    const btn = document.createElement("button");
+
+    btn.id = "inboxShortcutBtn";
+
+    btn.title = "Inbox";
+
+    // *** PERBAIKAN: Mengganti <i> dengan SVG baru yang sudah diperbaiki ***
+
+    btn.innerHTML = `<svg class="h-5 w-5 text-white" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><g id="SVGRepo_bgCarrier" stroke-width="0"></g><g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"></g><g id="SVGRepo_iconCarrier"> <path d="M8.5 17.5L5.5 20V15.5H2.46154C2.07391 15.5 1.70217 15.346 1.42807 15.0719C1.15398 14.7978 1 14.4261 1 14.0385V2.46154C1 2.07391 1.15398 1.70217 1.42807 1.42807C1.70217 1.15398 2.07391 1 2.46154 1H18.5385C18.9261 1 19.2978 1.15398 19.5719 1.42807C19.846 1.70217 20 2.07391 20 2.46154V6.8119" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path> <path d="M5 5H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path> <path d="M5 9H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path> <path d="M17 19C19.2091 19 21 17.2091 21 15C21 12.7909 19.2091 11 17 11C14.7909 11 13 12.7909 13 15C13 17.2091 14.7909 19 17 19Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path> <path d="M22 22C21.5167 21.3959 20.7962 20.8906 19.9155 20.5384C19.0348 20.1861 18.027 20 17 20C15.973 20 14.9652 20.1861 14.0845 20.5384C13.2038 20.8906 12.4833 21.3959 12 22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path> </g></svg><span id="inboxBadge" style="display:none; position:absolute; top:-6px; right:-6px; background:#ef4444; color:#fff; font-size:11px; padding:2px 6px; border-radius:999px;">0</span>`;
+
+    btn.style.position = "fixed";
+
+    btn.style.right = "20px";
+
+    btn.style.bottom = "20px";
+
+    btn.style.width = "48px";
+
+    btn.style.height = "48px";
+
+    btn.style.borderRadius = "999px";
+
+    btn.style.background = "#296888f0";
+
+    btn.style.boxShadow = "0 6px 20px rgba(2,6,23,0.4)";
+
+    btn.style.zIndex = "60";
+
+    btn.style.border = "none";
+
+    btn.style.cursor = "pointer";
+
+    // Kita perlu 'flex' untuk memusatkan SVG di dalam tombol
+
+    btn.style.display = "flex";
+
+    btn.style.alignItems = "center";
+
+    btn.style.justifyContent = "center";
+
+    document.body.appendChild(btn);
+
+    // lucide.createIcons(); // Hapus baris ini karena kita tidak pakai Lucide lagi di sini
+
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+
+      if (!window.currentUser?.id) {
+        showToast("Info", "Please login to view your inbox", "info");
+
+        return;
+      }
+
+      // clear inbox badge when opening
+
+      const badge = document.getElementById("inboxBadge");
+
+      if (badge) {
+        badge.style.display = "none";
+        badge.innerText = "0";
+      }
+
+      showUserProfilePopup(window.currentUser.id);
+    });
+  } catch (err) {
+    console.error("Could not create inbox shortcut:", err);
+  }
+}
+
+// Update inbox badge: delta or set
+
+function updateInboxBadge(deltaOrSet) {
+  const badge = document.getElementById("inboxBadge");
+
+  if (!badge) return;
+
+  // If it's a non-negative number, SET it directly (don't add)
+
+  if (typeof deltaOrSet === "number" && deltaOrSet >= 0) {
+    badge.innerText = String(deltaOrSet);
+
+    badge.style.display = deltaOrSet > 0 ? "inline-block" : "none";
+  }
+
+  // If it's negative, add it (delta mode)
+  else if (typeof deltaOrSet === "number" && deltaOrSet < 0) {
+    let current = parseInt(badge.innerText || "0", 10) || 0;
+
+    current = Math.max(0, current + deltaOrSet);
+
+    badge.innerText = String(current);
+
+    badge.style.display = current > 0 ? "inline-block" : "none";
+  }
+
+  // If it's 'clear' string, reset to 0
+  else if (deltaOrSet === "clear") {
+    badge.innerText = "0";
+
+    badge.style.display = "none";
+  }
+}
+
+// Mark conversation messages as read (sets is_read=true for messages where
+
+// receiver is current user and sender is otherId). No-op if DB doesn't support is_read.
+
+async function markConversationRead(otherId) {
+  try {
+    const me = window.currentUser?.id;
+
+    if (!me || !otherId) return;
+
+    if (!hasDirectMessagesTable || !hasDirectMessagesIsRead) return;
+
+    // *** PERBAIKAN: Hapus 'read_at' dari objek update ***
+
+    const updateObj = { is_read: true };
+
+    const { error } = await supabase
+
+      .from("direct_messages")
+
+      .update(updateObj)
+
+      .eq(dmReceiverCol, me)
+
+      .eq(dmSenderCol, otherId)
+
+      .eq("is_read", false); // Hanya update yang belum dibaca
+
+    if (error) {
+      console.warn("Could not mark conversation read:", error.message || error);
+    } else {
+      console.debug("Marked conversation with", otherId, "as read");
+    }
+  } catch (err) {
+    console.error("Error marking conversation read:", err);
+  }
+}
+
+// Initialize realtime subscription for direct messages so recipients
+
+// receive incoming DMs immediately.
+
+// Initialize realtime subscription for direct messages so recipients
+
+// receive incoming DMs immediately.
+
+function initDirectMessageRealtime() {
+  try {
+    if (!hasDirectMessagesTable || !supabase) return;
+
+    console.debug(
+      "initDirectMessageRealtime: starting subscription on direct_messages"
+    );
+
+    // Subscribe to INSERT events on direct_messages
+
+    const subscription = supabase
+
+      .channel("public:direct_messages")
+
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT", // <-- Pastikan ini 'INSERT', bukan '*'
+
+          schema: "public",
+
+          table: "direct_messages",
+        },
+
+        // *** PERBAIKAN 1: Buat fungsi ini jadi 'async' ***
+
+        async (payload) => {
+          try {
+            console.debug(
+              "initDirectMessageRealtime: payload received ->",
+              payload
+            );
+
+            const msg = payload.new;
+
+            const me = window.currentUser?.id;
+
+            if (!me) return;
+
+            const receiverVal = msg[dmReceiverCol];
+
+            const senderVal = msg[dmSenderCol];
+
+            if (
+              typeof receiverVal === "undefined" ||
+              typeof senderVal === "undefined"
+            ) {
+              console.warn(
+                "Realtime DM payload missing expected columns - payload:",
+                msg,
+                "dmSenderCol:",
+                dmSenderCol,
+                "dmReceiverCol:",
+                dmReceiverCol
+              );
+            }
+
+            // If I am the receiver, add to cache and notify
+
+            if (receiverVal === me) {
+              // =============================================
+
+              // == [MODIFIKASI SAYA] DETEKSI PANGGILAN MASUK
+
+              // =============================================
+
+              if (
+                msg.content &&
+                msg.content.startsWith("__VOICE_CALL_OFFER__:")
+              ) {
+                const callRoomId = msg.content.split(":")[1];
+
+                const callerId = senderVal;
+
+                console.log(
+                  `Menerima panggilan dari ${callerId} di room ${callRoomId}`
+                );
+
+                // Panggil fungsi call baru (yang ada di file)
+
+                receiveCall(callerId, callRoomId);
+
+                // Hentikan pemrosesan agar DM ini tidak muncul di chat
+
+                return;
+              }
+
+              // =============================================
+
+              // == AKHIR MODIFIKASI SAYA
+
+              // =============================================
+
+              // Jika bukan panggilan, proses sebagai pesan biasa (kode asli Anda)
+
+              const other = senderVal;
+
+              if (!directMessages[other]) directMessages[other] = [];
+
+              directMessages[other].push(msg);
+
+              // If DM modal for this sender is open, reload messages and mark read
+
+              if (document.getElementById(`dmMessages-${other}`)) {
+                loadDirectMessages(other);
+
+                if (hasDirectMessagesIsRead) markConversationRead(other);
+              }
+
+              // refresh inbox if open
+
+              refreshConversationsUI().catch(() => {});
+
+              // update inbox badge: calculate actual unread count instead of incrementing
+
+              try {
+                const convs = await getConversations();
+
+                const actualUnread = convs.reduce(
+                  (s, c) => s + (c.unread || 0),
+                  0
+                );
+
+                updateInboxBadge(actualUnread);
+              } catch (e) {
+                console.warn("Failed to update badge with actual count:", e);
+              } // *** PERBAIKAN 2: Ambil nama profil sebelum tampilkan toast ***
+
+              let senderName = senderVal.substring(0, 8); // Default ke ID yang dipotong
+
+              try {
+                const { data: profile, error } = await supabase
+
+                  .from("profiles")
+
+                  .select("full_name")
+
+                  .eq("id", senderVal)
+
+                  .single();
+
+                if (profile && profile.full_name) {
+                  senderName = profile.full_name; // Gunakan nama lengkap jika ada
+                }
+              } catch (profileError) {
+                console.warn(
+                  "Could not fetch sender profile for toast:",
+                  profileError
+                );
+              }
+
+              // Tampilkan toast dengan nama
+
+              showToast("Info", `New message from ${senderName}`, "info");
+            }
+          } catch (e) {
+            console.error("Realtime DM handler error:", e);
+          }
+        }
+      )
+
+      .subscribe();
+
+    // store channel reference to unsubscribe later if needed
+
+    supabaseChannels.push(subscription);
+  } catch (err) {
+    console.error("Failed to init direct message realtime:", err);
+  }
+}
+
+// Polling fallback: periodically refresh conversations if realtime or SELECT fails
+
+function startDirectMessagePoll(intervalMs = 8000) {
+  try {
+    if (dmPollInterval) return; // already running
+
+    dmPollInterval = setInterval(async () => {
+      try {
+        if (!window.currentUser?.id) return;
+
+        // try to refresh conversations and UI
+
+        const convs = await getConversations();
+
+        // if there are conversations, ensure UI is updated
+
+        if (convs && convs.length > 0) {
+          await refreshConversationsUI();
+
+          const totalUnread = convs.reduce((s, c) => s + (c.unread || 0), 0);
+
+          if (totalUnread > 0) updateInboxBadge(totalUnread);
+        } else {
+          // if no convs found, try an aggressive fallback query once
+
+          await tryFetchConversationsFallback();
+        }
+      } catch (e) {
+        // ignore transient poll errors
+        // console.warn('DM poll iteration error:', e);
+      }
+    }, intervalMs);
+
+    console.debug(
+      "startDirectMessagePoll: started with intervalMs=",
+      intervalMs
+    );
+  } catch (err) {
+    console.error("startDirectMessagePoll failed:", err);
+  }
+}
+
+function stopDirectMessagePoll() {
+  if (dmPollInterval) {
+    clearInterval(dmPollInterval);
+
+    dmPollInterval = null;
+  }
+}
+
+// Aggressive fallback: run separate queries for messages where 'me' is receiver or sender
+
+// This helps diagnose when .or() queries or policies block combined queries.
+
+async function tryFetchConversationsFallback() {
+  try {
+    if (!hasDirectMessagesTable || !window.currentUser?.id) return;
+
+    const me = window.currentUser.id;
+
+    // try receiver query
+
+    const recvQ = await supabase
+      .from("direct_messages")
+      .select("*")
+      .eq(dmReceiverCol, me)
+      .order("created_at", { ascending: true });
+
+    console.debug(
+      "tryFetchConversationsFallback: receiver query rows=",
+      Array.isArray(recvQ.data) ? recvQ.data.length : recvQ.data,
+      "error=",
+      recvQ.error || null
+    );
+
+    // try sender query
+
+    const sendQ = await supabase
+      .from("direct_messages")
+      .select("*")
+      .eq(dmSenderCol, me)
+      .order("created_at", { ascending: true });
+
+    console.debug(
+      "tryFetchConversationsFallback: sender query rows=",
+      Array.isArray(sendQ.data) ? sendQ.data.length : sendQ.data,
+      "error=",
+      sendQ.error || null
+    );
+
+    // Merge results into directMessages cache so inbox can render
+
+    const merged = [];
+
+    if (Array.isArray(recvQ.data)) merged.push(...recvQ.data);
+
+    if (Array.isArray(sendQ.data)) merged.push(...sendQ.data);
+
+    if (merged.length > 0) {
+      // build convMap as getConversations would
+
+      merged.forEach((m) => {
+        const other = m[dmSenderCol] === me ? m[dmReceiverCol] : m[dmSenderCol];
+
+        if (!directMessages[other]) directMessages[other] = [];
+
+        directMessages[other].push(m);
+      });
+
+      await refreshConversationsUI();
+    }
+  } catch (err) {
+    console.error("tryFetchConversationsFallback failed:", err);
+  }
+}
+
+// Update direct message UI
+
+function updateDirectMessageUI(userId) {
+  console.debug(
+    "updateDirectMessageUI for",
+    userId,
+    "messagesCount=",
+    (directMessages[userId] || []).length
+  );
+
+  const container = document.getElementById(`dmMessages-${userId}`);
+
+  if (!container) return;
+
+  const messages = directMessages[userId] || [];
+
+  container.innerHTML = messages
+    .map(
+      (msg) => `
+
+          <div class="flex ${
+            msg.sender_id === window.currentUser?.id
+              ? "justify-end"
+              : "justify-start"
+          }">
+
+            <div class="${
+              msg.sender_id === window.currentUser?.id
+                ? "bg-blue-600 text-white"
+                : "bg-slate-700 text-slate-100"
+            } rounded-lg px-4 py-2 max-w-[80%] break-words">
+
+              ${msg.content}
+
+              <div class="text-xs opacity-75 mt-1">
+
+                ${new Date(msg.created_at).toLocaleTimeString()}
+
+              </div>
+
+            </div>
+
+          </div>
+
+        `
+    )
+    .join("");
+
+  container.scrollTop = container.scrollHeight;
+}
+
+async function appendMessage(msg, updateOnly = false) {
+  const chatMessages = document.getElementById("chatMessages");
+
+  if (!chatMessages) {
+    console.error("Elemen chatMessages tidak ditemukan");
+
+    return;
+  }
+
+  const existingMessage = document.querySelector(
+    `[data-message-id="${msg.id}"]`
+  );
+
+  if (existingMessage && !updateOnly) {
+    return;
+  }
+
+  if (!isValidUuid(msg.id) && !msg.id.startsWith("temp-")) {
+    console.error(`Invalid message ID: ${msg.id}`);
+
+    showToast("Error", "Invalid message ID", "destructive");
+
+    return;
+  }
+
+  const isMine = msg.user_id === window.currentUser?.id;
+
+  // Hanya proses pesan yang belum dibaca dan bukan milik kita
+
+  if (!isMine && !msg.is_read && !updateOnly) {
+    // Buat IntersectionObserver untuk mendeteksi ketika pesan muncul di viewport
+
+    const observer = new IntersectionObserver(
+      async (entries) => {
+        if (entries[0].isIntersecting) {
+          try {
+            console.log("Marking message as read:", msg.id);
+
+            const { data, error } = await supabase
+
+              .from("messages")
+
+              .update({
+                is_read: true,
+
+                read_at: new Date().toISOString(),
+
+                status: "Read",
+              })
+
+              .eq("id", msg.id)
+
+              .select();
+
+            if (error) {
+              console.error("Error updating message read status:", error);
+            } else {
+              msg.is_read = true;
+
+              msg.status = "Read";
+
+              msg.read_at = new Date().toISOString();
+
+              // Update UI untuk menampilkan status read
+
+              const statusElement = document.querySelector(
+                `[data-message-id="${msg.id}"] .message-status`
+              );
+
+              if (statusElement) {
+                statusElement.innerHTML = `
+
+                      <i data-lucide="check-check" class="h-3 w-3 mr-1 text-emerald-400"></i>
+
+                      <span>Read ${new Date().toLocaleTimeString()}</span>
+
+                    `;
+
+                lucide.createIcons();
+              }
+
+              // Broadcast ke pengirim bahwa pesan telah dibaca
+
+              const broadcastChannel = supabase.channel(`message-${msg.id}`);
+
+              await broadcastChannel.subscribe(async (status) => {
+                if (status === "SUBSCRIBED") {
+                  await broadcastChannel.send({
+                    type: "broadcast",
+
+                    event: "message_read",
+
+                    payload: {
+                      message_id: msg.id,
+
+                      read_by: window.currentUser?.id,
+
+                      read_at: new Date().toISOString(),
+                    },
+                  });
+                }
+              });
+            }
+          } catch (error) {
+            console.error("Error marking message as read:", error);
+          } finally {
+            // Hentikan observasi setelah pesan ditandai sebagai dibaca
+
+            observer.disconnect();
+          }
+        }
+      },
+      {
+        threshold: 0.5, // Pesan dianggap terlihat jika 50% terlihat di viewport
+      }
+    );
+
+    // Mulai observasi setelah pesan ditambahkan ke DOM
+
+    setTimeout(() => {
+      const messageElement = document.querySelector(
+        `[data-message-id="${msg.id}"]`
+      );
+
+      if (messageElement) {
+        observer.observe(messageElement);
+      }
+    }, 100);
+  }
+
+  const messageEl = existingMessage || document.createElement("div");
+
+  messageEl.className = `flex mb-4 last:mb-0 ${
+    isMine ? "flex-row-reverse" : ""
+  }`;
+
+  messageEl.setAttribute("data-message-id", msg.id);
+
+  if (existingMessage) {
+    const oldButtons = existingMessage.querySelectorAll(
+      ".play-pause-btn, .like-btn, .reply-btn, .report-btn"
+    );
+
+    oldButtons.forEach((btn) => btn.replaceWith(btn.cloneNode(true)));
+  }
+
+  let avatarContent = msg.full_name ? msg.full_name[0].toUpperCase() : "A";
+
+  let avatarColor = "blue";
+
+  if (isMine) avatarColor = "cyan";
+
+  if (msg.full_name?.includes("Sarah")) avatarColor = "purple";
+
+  if (msg.avatar_url) {
+    try {
+      const { data: avatarData } = await supabase.storage
+
+        .from("avatars")
+
+        .getPublicUrl(msg.avatar_url);
+
+      if (avatarData?.publicUrl) {
+        avatarContent = `<img src="${avatarData.publicUrl}" class="h-8 w-8 rounded-full object-cover" alt="Avatar" />`;
+      }
+    } catch (error) {
+      console.error("Gagal ambil avatar:", error);
+    }
+  }
+
+  const timestamp = new Date(msg.created_at).toLocaleString("id-ID", {
+    hour: "numeric",
+
+    minute: "numeric",
+
+    hour12: true,
+  });
+
+  // Sanitasi konten terlebih dahulu
+
+  let sanitizedContent = sanitizeHTML(msg.content);
+
+  const highlightedContent = highlightMentions(sanitizedContent);
+
+  // Buat elemen sementara untuk memproses konten
+
+  const tempDiv = document.createElement("div");
+
+  tempDiv.innerHTML = highlightedContent;
+
+  // Ganti placeholder __BAD_WORD__ dengan elemen SVG
+
+  const placeholderRegex = /__BAD_WORD__/g;
+
+  if (placeholderRegex.test(tempDiv.innerHTML)) {
+    const svgElement = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "svg"
+    );
+
+    svgElement.setAttribute("viewBox", "0 0 64 64");
+
+    svgElement.setAttribute("stroke-width", "3");
+
+    svgElement.setAttribute("stroke", "#ff0000");
+
+    svgElement.setAttribute("fill", "none");
+
+    svgElement.style.width = "1em";
+
+    svgElement.style.height = "1em";
+
+    svgElement.style.verticalAlign = "middle";
+
+    svgElement.style.display = "inline-block";
+
+    const g1 = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+    g1.setAttribute("id", "SVGRepo_bgCarrier");
+
+    g1.setAttribute("stroke-width", "0");
+
+    svgElement.appendChild(g1);
+
+    const g2 = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+    g2.setAttribute("id", "SVGRepo_tracerCarrier");
+
+    g2.setAttribute("stroke-linecap", "round");
+
+    g2.setAttribute("stroke-linejoin", "round");
+
+    svgElement.appendChild(g2);
+
+    const g3 = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+    g3.setAttribute("id", "SVGRepo_iconCarrier");
+
+    const circle = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "circle"
+    );
+
+    circle.setAttribute("cx", "32");
+
+    circle.setAttribute("cy", "32");
+
+    circle.setAttribute("r", "25.3");
+
+    g3.appendChild(circle);
+
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+
+    line.setAttribute("x1", "49.89");
+
+    line.setAttribute("y1", "49.89");
+
+    line.setAttribute("x2", "14.11");
+
+    line.setAttribute("y2", "14.11");
+
+    g3.appendChild(line);
+
+    g2.appendChild(g3);
+
+    const spanElement = document.createElement("span");
+
+    spanElement.className = "bad-word-icon";
+
+    spanElement.appendChild(svgElement);
+
+    // Ganti semua placeholder dengan elemen SVG
+
+    const walker = document.createTreeWalker(
+      tempDiv,
+      NodeFilter.SHOW_TEXT,
+      null,
+      false
+    );
+
+    let node;
+
+    while ((node = walker.nextNode())) {
+      if (node.nodeValue.includes("__BAD_WORD__")) {
+        const parts = node.nodeValue.split(/(__BAD_WORD__)/);
+
+        const fragment = document.createDocumentFragment();
+
+        parts.forEach((part) => {
+          if (part === "__BAD_WORD__") {
+            fragment.appendChild(spanElement.cloneNode(true));
+          } else {
+            fragment.appendChild(document.createTextNode(part));
+          }
+        });
+
+        node.parentNode.replaceChild(fragment, node);
+      }
+    }
+  }
+
+  const finalContent = tempDiv.innerHTML;
+
+  const sanitizedFullName = sanitizeHTML(msg.full_name || "Anonim");
+
+  const isMentioned =
+    Array.isArray(msg.mentions) &&
+    msg.mentions.includes(window.currentUser?.id);
+
+  const isAtBottom = isScrolledToBottom(chatMessages);
+
+  messageEl.innerHTML = `
+
+    <div class="flex-shrink-0 ${
+      isMine ? "ml-3" : "mr-3"
+    }" data-user-id="${sanitizeHTML(
+    msg.user_id || ""
+  )}" style="cursor: pointer;">
+
+      <div class="h-8 w-8 rounded-full bg-gradient-to-br from-${avatarColor}-500/20 to-${avatarColor}-600/20 border border-${avatarColor}-500/30 flex items-center justify-center shadow-sm">
+
+        ${avatarContent}
+
+      </div>
+
+    </div>
+
+    <div class="flex-1 min-w-0 ${isMine ? "text-right" : ""}">
+
+      <div class="flex items-baseline mb-1 ${isMine ? "justify-end" : ""}">
+
+        <div class="text-xs ${
+          isMine
+            ? "text-slate-500 flex items-center mr-2"
+            : "font-medium text-" + avatarColor + "-400 mr-2"
+        }">
+
+          ${
+            isMine
+              ? `<i data-lucide="clock" class="h-3 w-3 mr-1"></i><span>${timestamp}</span>`
+              : `<span class=\"user-name\" data-user-id=\"${sanitizeHTML(
+                  msg.user_id || ""
+                )}\" style=\"cursor:pointer\">${sanitizedFullName}</span>`
+          }
+
+        </div>
+
+        ${
+          isMine
+            ? `<div class="text-xs font-medium text-cyan-400">You</div>`
+            : `<div class="text-xs text-slate-500 flex items-center"><i data-lucide="clock" class="h-3 w-3 mr-1"></i><span>${timestamp}</span></div>`
+        }
+
+      </div>
+
+      <div class="text-sm text-slate-300 ${
+        isMine
+          ? "bg-gradient-to-r from-cyan-600/20 to-blue-600/20 border border-cyan-500/30 inline-block"
+          : "bg-slate-800/50 border border-slate-700/30"
+      } rounded-lg p-3 ${isMentioned ? "border-cyan-500/50" : ""}">
+
+        ${finalContent}
+
+      </div>
+
+  `;
+
+  if (msg.image_url) {
+    const imgContainer = document.createElement("div");
+
+    imgContainer.className = "grid grid-cols-2 gap-2 mt-2";
+
+    imgContainer.innerHTML = `
+
+            <div class="bg-slate-800/70 border border-slate-700/40 rounded-lg overflow-hidden cursor-pointer hover:border-cyan-500/40 transition-all duration-200">
+
+                <img src="${msg.image_url}" alt="Image" class="max-w-[200px] h-auto">
+
+            </div>
+
+        `;
+
+    messageEl.querySelector(".text-sm").appendChild(imgContainer);
+  }
+
+  if (msg.audio_url) {
+    const voiceContainer = document.createElement("div");
+
+    voiceContainer.className = "voice-message-container mt-2";
+
+    const duration = msg.duration || Math.floor(Math.random() * 30) + 5;
+
+    const minutes = Math.floor(duration / 60);
+
+    const seconds = duration % 60;
+
+    voiceContainer.innerHTML = `
+
+            <div class="voice-message ${
+              isMine
+                ? "bg-gradient-to-r from-cyan-600/20 to-blue-600/20 border border-cyan-500/30"
+                : "bg-slate-800/50 border border-slate-700/30"
+            } rounded-lg p-2 flex items-center">
+
+                <button class="play-pause-btn p-2 bg-${
+                  isMine ? "cyan" : "slate"
+                }-500/20 rounded-full">
+
+                    <svg class="play-icon" width="16" height="16" viewBox="0 0 24 24">
+
+                        <path fill="currentColor" d="M8 5v14l11-7z"/>
+
+                    </svg>
+
+                    <svg class="pause-icon" width="16" height="16" viewBox="0 0 24 24" style="display:none">
+
+                        <path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+
+                    </svg>
+
+                </button>
+
+                <div class="waveform-container flex-1 mx-2">
+
+                    <div class="waveform h-6 bg-slate-700/50 rounded-full overflow-hidden">
+
+                        <div class="progress h-full bg-${
+                          isMine ? "cyan" : "blue"
+                        }-500/50" style="width: 0%"></div>
+
+                    </div>
+
+                </div>
+
+                <span class="duration text-xs text-slate-400">${minutes}:${seconds
+      .toString()
+      .padStart(2, "0")}</span>
+
+            </div>
+
+            <audio src="${msg.audio_url}" preload="none"></audio>
+
+        `;
+
+    messageEl.querySelector(".text-sm").appendChild(voiceContainer);
+
+    const playBtn = voiceContainer.querySelector(".play-pause-btn");
+
+    const audio = voiceContainer.querySelector("audio");
+
+    const playIcon = voiceContainer.querySelector(".play-icon");
+
+    const pauseIcon = voiceContainer.querySelector(".pause-icon");
+
+    const progress = voiceContainer.querySelector(".progress");
+
+    if (playBtn && audio && playIcon && pauseIcon && progress) {
+      playBtn.addEventListener("click", () => {
+        if (audio.paused) {
+          audio.play();
+
+          playIcon.style.display = "none";
+
+          pauseIcon.style.display = "block";
+
+          const startTime = Date.now();
+
+          const animate = () => {
+            const elapsed = (Date.now() - startTime) / 1000;
+
+            const percentage = Math.min((elapsed / duration) * 100, 100);
+
+            progress.style.width = `${percentage}%`;
+
+            if (!audio.paused && percentage < 100) {
+              requestAnimationFrame(animate);
+            }
+          };
+
+          animate();
+        } else {
+          audio.pause();
+
+          playIcon.style.display = "block";
+
+          pauseIcon.style.display = "none";
+        }
+      });
+
+      audio.addEventListener("ended", () => {
+        playIcon.style.display = "block";
+
+        pauseIcon.style.display = "none";
+
+        progress.style.width = "0%";
+      });
+
+      audio.addEventListener("pause", () => {
+        playIcon.style.display = "block";
+
+        pauseIcon.style.display = "none";
+      });
+    }
+  }
+
+  const actions = document.createElement("div");
+
+  actions.className = `flex items-center mt-2 space-x-3 ${
+    isMine ? "justify-end" : ""
+  }`;
+
+  const likes = normalizeLikes(msg.likes);
+
+  // Build actions HTML: likes + (three-dot menu for owner) or reply/report for others
+
+  actions.innerHTML = `
+
+        <div class="like-container flex space-x-2">
+
+            <button class="like-btn like-thumbs-up text-xs text-slate-400 hover:text-cyan-400 flex items-center" data-message-id="${
+              msg.id
+            }" data-type="thumbsUp">
+
+                <i data-lucide="thumbs-up" class="h-3 w-3 mr-1"></i>
+
+                <span>${getLikesCount(likes, "thumbsUp")}</span>
+
+            </button>
+
+            <button class="like-btn like-heart text-xs text-slate-400 hover:text-red-400 flex items-center" data-message-id="${
+              msg.id
+            }" data-type="heart">
+
+                ❤️<span class="ml-1">${getLikesCount(likes, "heart")}</span>
+
+            </button>
+
+            <button class="like-btn like-laugh text-xs text-slate-400 hover:text-yellow-400 flex items-center" data-message-id="${
+              msg.id
+            }" data-type="laugh">
+
+                😆<span class="ml-1">${getLikesCount(likes, "laugh")}</span>
+
+            </button>
+
+            <button class="like-btn like-wow text-xs text-slate-400 hover:text-indigo-400 flex items-center" data-message-id="${
+              msg.id
+            }" data-type="wow">
+
+                😮<span class="ml-1">${getLikesCount(likes, "wow")}</span>
+
+            </button>
+
+            <button class="like-btn like-sad text-xs text-slate-400 hover:text-blue-400 flex items-center" data-message-id="${
+              msg.id
+            }" data-type="sad">
+
+                😢<span class="ml-1">${getLikesCount(likes, "sad")}</span>
+
+            </button>
+
+            <button class="like-btn like-angry text-xs text-slate-400 hover:text-orange-400 flex items-center" data-message-id="${
+              msg.id
+            }" data-type="angry">
+
+                😡<span class="ml-1">${getLikesCount(likes, "angry")}</span>
+
+            </button>
+
+            <button class="like-btn like-love text-xs text-slate-400 hover:text-pink-400 flex items-center" data-message-id="${
+              msg.id
+            }" data-type="love">
+
+                🥰<span class="ml-1">${getLikesCount(likes, "love")}</span>
+
+            </button>
+
+        </div>
+
+        ${
+          !isMine
+            ? `
+
+        <button class="reply-btn text-xs text-slate-400 hover:text-amber-400 flex items-center" data-message-id="${msg.id}">
+
+            <i data-lucide="message-square" class="h-3 w-3 mr-1"></i>
+
+            <span>Reply</span>
+
+        </button>
+
+        <button class="report-btn text-xs text-slate-400 hover:text-rose-400 flex items-center" data-message-id="${msg.id}">
+
+            <i data-lucide="flag" class="h-3 w-3 mr-1"></i>
+
+            <span>Report</span>
+
+        </button>`
+            : `
+
+        <div class="relative">
+
+          <button class="menu-btn text-xs text-slate-400 hover:text-cyan-300 flex items-center" aria-haspopup="true" aria-expanded="false" title="Message menu">
+
+            <i data-lucide="more-vertical" class="h-4 w-4"></i>
+
+          </button>
+
+          <div class="menu-dropdown hidden absolute right-0 mt-2 w-44 bg-slate-800 border border-slate-700 rounded shadow-lg z-50">
+
+            <button class="menu-item edit-item w-full text-left px-3 py-2 text-sm hover:bg-slate-700" ${
+              canEditMessage(msg) ? "" : "disabled"
+            }>Edit</button>
+
+            <button class="menu-item delete-me-item w-full text-left px-3 py-2 text-sm hover:bg-slate-700">Delete for me</button>
+
+            <button class="menu-item delete-all-item w-full text-left px-3 py-2 text-sm hover:bg-slate-700" ${
+              canDeleteForEveryone(msg) ? "" : "disabled"
+            }>Delete for everyone</button>
+
+          </div>
+
+          <span class="text-xs text-slate-500 flex items-center ml-2 message-status" data-message-id="${
+            msg.id
+          }">
+
+            ${
+              msg.is_read
+                ? `<i data-lucide="check-check" class="h-3 w-3 mr-1 text-emerald-400"></i>
+
+               <span>Read ${
+                 msg.read_at ? new Date(msg.read_at).toLocaleTimeString() : ""
+               }</span>`
+                : `<i data-lucide="check" class="h-3 w-3 mr-1 text-emerald-400"></i>
+
+               <span>Delivered</span>`
+            }
+
+          </span>
+
+        </div>`
+        }
+
+    `;
+
+  messageEl.querySelector(".flex-1").appendChild(actions);
+
+  const likeButtons = actions.querySelectorAll(".like-btn");
+
+  likeButtons.forEach((button) => {
+    button.addEventListener("click", async (e) => {
+      e.preventDefault();
+
+      e.stopPropagation();
+
+      const messageId = button.dataset.messageId;
+
+      const likeType = button.dataset.type;
+
+      // Jika pengguna tidak login, tampilkan pesan dan hentikan
+
+      if (!window.currentUser?.id || !isValidUuid(window.currentUser.id)) {
+        showToast("Error”, ”Please login to like", "destructive");
+
+        return;
+      }
+
+      if (!isValidUuid(messageId)) {
+        console.error(`Invalid message ID: ${messageId}`);
+
+        showToast("Error”, ”Invalid message ID", "destructive");
+
+        return;
+      }
+
+      let likes = normalizeLikes(msg.likes);
+
+      const userLike = likes.find(
+        (like) => like.user_id === window.currentUser.id
+      );
+
+      if (userLike) {
+        if (userLike.type === likeType) {
+          likes = likes.filter(
+            (like) => like.user_id !== window.currentUser.id
+          );
+        } else {
+          likes = likes.filter(
+            (like) => like.user_id !== window.currentUser.id
+          );
+
+          likes.push({ type: likeType, user_id: window.currentUser.id });
+        }
+      } else {
+        likes.push({ type: likeType, user_id: window.currentUser.id });
+      }
+
+      const { error } = await supabase
+        .from("messages")
+        .update({ likes })
+        .eq("id", messageId);
+
+      if (error) {
+        console.error("Gagal menyimpan like ke Supabase:", error);
+
+        showToast(
+          "Error”, ”Failed to save like: " + error.message,
+          "destructive"
+        );
+
+        return;
+      }
+
+      const index = messagesList.findIndex((m) => m.id === messageId);
+
+      if (index !== -1) {
+        messagesList[index].likes = likes;
+
+        await appendMessage(messagesList[index], true);
+      }
+    });
+  });
+
+  if (!isMine) {
+    const replyBtn = actions.querySelector(".reply-btn");
+
+    if (replyBtn) {
+      const replyHandler = () => {
+        if (!window.currentUser?.id) {
+          showToast(
+            "Error”, ”Please login to reply to the message",
+            "destructive"
+          );
+
+          return;
+        }
+
+        const chatInput = document.getElementById("chatInput");
+
+        chatInput.value = `Replying to ${msg.full_name}: ${msg.content}\n`;
+
+        chatInput.focus();
+      };
+
+      replyBtn.addEventListener("click", replyHandler);
+
+      eventListeners.push({
+        element: replyBtn,
+        event: "click",
+        handler: replyHandler,
+      });
+    }
+
+    const reportBtn = actions.querySelector(".report-btn");
+
+    if (reportBtn) {
+      const reportHandler = () => {
+        if (!window.currentUser?.id) {
+          showToast("Error", "Please login to report messages", "destructive");
+
+          return;
+        }
+
+        const popup = document.createElement("div");
+
+        popup.className =
+          "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50";
+
+        popup.innerHTML = `
+
+                    <div class="bg-slate-800 p-4 rounded-lg shadow-lg w-80">
+
+                        <h3 class="text-lg font-semibold text-white mb-2">Report Message</h3>
+
+                        <textarea id="reportReason" class="w-full h-24 p-2 bg-slate-700 text-white rounded mb-4" placeholder="Enter the reason for reporting...."></textarea>
+
+                        <div class="flex justify-end space-x-2">
+
+                            <button id="cancelReport" class="px-4 py-2 bg-slate-600 text-white rounded hover:bg-slate-500">cancel</button>
+
+                            <button id="submitReport" class="px-4 py-2 bg-rose-600 text-white rounded hover:bg-rose-500">Send</button>
+
+                        </div>
+
+                    </div>
+
+                `;
+
+        document.body.appendChild(popup);
+
+        const cancelBtn = popup.querySelector("#cancelReport");
+
+        if (cancelBtn) {
+          const cancelHandler = () => popup.remove();
+
+          cancelBtn.addEventListener("click", cancelHandler);
+
+          eventListeners.push({
+            element: cancelBtn,
+            event: "click",
+            handler: cancelHandler,
+          });
+        }
+
+        const submitBtn = popup.querySelector("#submitReport");
+
+        if (submitBtn) {
+          const submitHandler = async () => {
+            const reason = document.getElementById("reportReason").value.trim();
+
+            if (reason) {
+              await supabase.from("reports").insert({
+                message_id: msg.id,
+
+                user_id: window.currentUser.id,
+
+                reason,
+              });
+
+              showToast("Info”, ”Message has been reported", "default");
+            }
+
+            popup.remove();
+          };
+
+          submitBtn.addEventListener("click", submitHandler);
+
+          eventListeners.push({
+            element: submitBtn,
+            event: "click",
+            handler: submitHandler,
+          });
+        }
+      };
+
+      reportBtn.addEventListener("click", reportHandler);
+
+      eventListeners.push({
+        element: reportBtn,
+        event: "click",
+        handler: reportHandler,
+      });
+    }
+  }
+
+  // Owner menu handlers (three-dot menu)
+
+  if (isMine) {
+    const menuBtn = actions.querySelector(".menu-btn");
+
+    const dropdown = actions.querySelector(".menu-dropdown");
+
+    const editItem = actions.querySelector(".edit-item");
+
+    const deleteMeItem = actions.querySelector(".delete-me-item");
+
+    const deleteAllItem = actions.querySelector(".delete-all-item");
+
+    if (menuBtn && dropdown) {
+      const toggle = (e) => {
+        e.stopPropagation();
+
+        const isHidden = dropdown.classList.contains("hidden");
+
+        document
+          .querySelectorAll(".menu-dropdown")
+          .forEach((d) => d.classList.add("hidden"));
+
+        if (isHidden) dropdown.classList.remove("hidden");
+      };
+
+      menuBtn.addEventListener("click", toggle);
+
+      eventListeners.push({
+        element: menuBtn,
+        event: "click",
+        handler: toggle,
+      });
+
+      // Close on outside click
+
+      const outsideHandler = (ev) => {
+        if (!dropdown.contains(ev.target) && ev.target !== menuBtn)
+          dropdown.classList.add("hidden");
+      };
+
+      document.addEventListener("click", outsideHandler);
+
+      eventListeners.push({
+        element: document,
+        event: "click",
+        handler: outsideHandler,
+      });
+    }
+
+    if (editItem) {
+      const editHandler = (e) => {
+        e.stopPropagation();
+        startEditMessage(msg.id);
+        dropdown?.classList.add("hidden");
+      };
+
+      editItem.addEventListener("click", editHandler);
+
+      eventListeners.push({
+        element: editItem,
+        event: "click",
+        handler: editHandler,
+      });
+    }
+
+    if (deleteMeItem) {
+      const delMeHandler = async (e) => {
+        e.stopPropagation();
+
+        const ok = await showConfirm("Delete", "Delete this message for you?");
+
+        if (!ok) return;
+
+        deleteMessageForMe(msg.id);
+
+        dropdown?.classList.add("hidden");
+      };
+
+      deleteMeItem.addEventListener("click", delMeHandler);
+
+      eventListeners.push({
+        element: deleteMeItem,
+        event: "click",
+        handler: delMeHandler,
+      });
+    }
+
+    if (deleteAllItem) {
+      const delAllHandler = async (e) => {
+        e.stopPropagation();
+
+        if (!canDeleteForEveryone(msg)) {
+          showToast(
+            "Error",
+            "Cannot delete for everyone: time limit exceeded",
+            "destructive"
+          );
+
+          return;
+        }
+
+        const ok = await showConfirm(
+          "Delete for everyone",
+          "Delete this message for everyone? This cannot be undone."
+        );
+
+        if (!ok) return;
+
+        await deleteMessageForEveryone(msg.id);
+
+        dropdown?.classList.add("hidden");
+      };
+
+      deleteAllItem.addEventListener("click", delAllHandler);
+
+      eventListeners.push({
+        element: deleteAllItem,
+        event: "click",
+        handler: delAllHandler,
+      });
+    }
+  }
+
+  // Highlight the emoji the current user liked (make it visually prominent)
+
+  try {
+    const currentUserId = window.currentUser?.id;
+
+    if (currentUserId && Array.isArray(msg.likes)) {
+      // normalize the likes shape
+
+      const normalized = normalizeLikes(msg.likes);
+
+      // find current user's like(s)
+
+      const myLikes = normalized.filter((l) => l.user_id === currentUserId);
+
+      likeButtons.forEach((btn) => {
+        const type = btn.dataset.type;
+
+        const hasMyLike = myLikes.some((l) => l.type === type);
+
+        if (hasMyLike) {
+          // add a prominent style for the liked emoji
+
+          btn.classList.add("liked-emoji");
+
+          btn.style.transform = "scale(1.08)";
+
+          btn.style.background = "linear-gradient(90deg,#06b6d4,#7c3aed)";
+
+          btn.style.color = "white";
+
+          btn.style.borderRadius = "8px";
+
+          btn.style.padding = "4px 6px";
+        } else {
+          // reset any inline styles for non-liked buttons (safe-idempotent)
+
+          btn.classList.remove("liked-emoji");
+
+          btn.style.transform = "";
+
+          btn.style.background = "";
+
+          btn.style.color = "";
+
+          btn.style.borderRadius = "";
+
+          btn.style.padding = "";
+        }
+      });
+    }
+  } catch (e) {
+    // don't block UI if something goes wrong
+
+    console.error("Error applying like highlight:", e);
+  }
+
+  // attach click handlers so clicking avatar or name opens the user profile popup
+
+  try {
+    if (msg.user_id) {
+      const avatarEl = messageEl.querySelector(".flex-shrink-0");
+
+      if (avatarEl) {
+        avatarEl.style.cursor = "pointer";
+
+        const avHandler = (e) => {
+          e.stopPropagation();
+          showUserProfilePopup(msg.user_id);
+        };
+
+        avatarEl.addEventListener("click", avHandler);
+
+        eventListeners.push({
+          element: avatarEl,
+          event: "click",
+          handler: avHandler,
+        });
+      }
+
+      const nameEl = messageEl.querySelector(".flex-1 .text-xs");
+
+      if (nameEl) {
+        nameEl.style.cursor = "pointer";
+
+        const nameHandler = (e) => {
+          e.stopPropagation();
+          showUserProfilePopup(msg.user_id);
+        };
+
+        nameEl.addEventListener("click", nameHandler);
+
+        eventListeners.push({
+          element: nameEl,
+          event: "click",
+          handler: nameHandler,
+        });
+      }
+    }
+  } catch (e) {
+    console.error("attach profile click handlers error:", e);
+  }
+
+  lucide.createIcons();
+
+  if (!existingMessage) {
+    chatMessages.appendChild(messageEl);
+  }
+
+  if (isAtBottom) {
+    chatMessages.scrollTo({
+      top: chatMessages.scrollHeight,
+      behavior: "smooth",
+    });
+  }
+}
+
+// Cek apakah pengguna di bawah
+
+function isScrolledToBottom(element) {
+  return element.scrollHeight - element.scrollTop <= element.clientHeight + 10;
+}
+
+// Highlight text @username
+
+function highlightMentions(text) {
+  return text.replace(
+    /@([\w\s]+)/g,
+    '<span class="text-cyan-400 font-semibold">@$1</span>'
+  );
+}
+
+// Deteksi mention @username
+
+function detectMentions(content) {
+  const mentions = content.match(/@([\w\s]+)/g) || [];
+
+  return mentions.map((m) => m.substring(1).trim());
+}
+
+// Ambil daftar pengguna yang pernah mengirim pesan
+
+async function fetchChatParticipants(query = "") {
+  try {
+    const { data, error } = await supabase
+
+      .from("profiles")
+
+      .select("id, full_name, avatar_url")
+
+      .ilike("full_name", `%${query}%`)
+
+      .limit(10);
+
+    if (error) throw error;
+
+    return data;
+  } catch (error) {
+    console.error("Gagal mengambil daftar pengguna:", error);
+
+    return [];
+  }
+}
+
+// Tampilkan daftar saran autocompletion
+
+async function showMentionSuggestions(query, chatInput, suggestionList) {
+  if (!suggestionList) return;
+
+  const participants = await fetchChatParticipants(query);
+
+  suggestionList.innerHTML = "";
+
+  suggestionList.classList.add("hidden");
+
+  if (participants.length === 0) return;
+
+  participants.forEach((user) => {
+    const item = document.createElement("div");
+
+    item.className =
+      "suggestion-item flex items-center space-x-2 p-2 hover:bg-gray-100 cursor-pointer";
+
+    const initial = user.full_name ? user.full_name[0].toUpperCase() : "A";
+
+    item.innerHTML = `
+
+            <div class="avatar w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center">
+
+                ${initial}
+
+            </div>
+
+            <span>${sanitizeHTML(user.full_name)}</span>
+
+        `;
+
+    item.dataset.userId = user.id;
+
+    item.dataset.fullName = user.full_name;
+
+    const clickHandler = () => {
+      const cursorPos = chatInput.selectionStart;
+
+      const textBefore = chatInput.value
+        .substring(0, cursorPos)
+        .replace(/@[\w\s]*$/, `@${user.full_name} `);
+
+      const textAfter = chatInput.value.substring(cursorPos);
+
+      chatInput.value = textBefore + textAfter;
+
+      suggestionList.classList.add("hidden");
+
+      chatInput.focus();
+    };
+
+    item.addEventListener("click", clickHandler);
+
+    eventListeners.push({
+      element: item,
+      event: "click",
+      handler: clickHandler,
+    });
+
+    suggestionList.appendChild(item);
+  });
+
+  suggestionList.classList.remove("hidden");
+}
+
+// Ambil data profil pengguna
+
+async function fetchUserProfile(userId) {
+  try {
+    const { data: profile, error } = await supabase
+
+      .from("profiles")
+
+      .select("full_name, avatar_url")
+
+      .eq("id", userId)
+
+      .single();
+
+    if (error) throw error;
+
+    return {
+      full_name: profile?.full_name || "Anonim",
+
+      avatar_url: profile?.avatar_url || "",
+    };
+  } catch (error) {
+    console.error("Gagal mengambil profil:", error);
+
+    return { full_name: "Anonim", avatar_url: "" };
+  }
+}
+
+// Fetch extended user details for profile popup (points, boosters, followers)
+
+async function fetchUserDetails(userId) {
+  try {
+    // Try to get richer profile info from `profiles` table if available
+
+    const { data: profile, error: profileErr } = await supabase
+
+      .from("profiles")
+
+      .select("id, full_name, avatar_url, points, boosters, followers_count")
+
+      .eq("id", userId)
+
+      .single();
+
+    if (profileErr && profileErr.code) {
+      // Proceed with fallback minimal profile
+
+      console.warn(
+        "fetchUserDetails: profiles query error",
+        profileErr.message || profileErr
+      );
+    }
+
+    // Attempt to get follower count from `follows` table if not present
+
+    let followersCount = profile?.followers_count || 0;
+
+    if ((followersCount === undefined || followersCount === null) && profile) {
+      try {
+        const { count, error: countErr } = await supabase
+
+          .from("follows")
+
+          .select("*", { count: "exact", head: true })
+
+          .eq("following_id", userId);
+
+        if (!countErr) followersCount = count || 0;
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    return {
+      id: profile?.id || userId,
+
+      full_name: profile?.full_name || "Anonim",
+
+      avatar_url: profile?.avatar_url || "",
+
+      points: profile?.points || 0,
+
+      boosters: profile?.boosters || [],
+
+      followers_count: followersCount || 0,
+    };
+  } catch (err) {
+    console.error("fetchUserDetails error:", err);
+
+    return {
+      id: userId,
+      full_name: "Anonim",
+      avatar_url: "",
+      points: 0,
+      boosters: [],
+      followers_count: 0,
+    };
+  }
+}
+
+// Subscribe to message updates
+
+async function subscribeToMessageUpdates() {
+  try {
+    const messagesUpdateChannel = supabase.channel("message-updates", {
+      config: {
+        broadcast: { self: true },
+
+        presence: {
+          key: window.currentUser?.id,
+        },
+      },
+    });
+
+    messagesUpdateChannel
+
+      .on(
+        "presence",
+
+        { event: "sync" },
+
+        () => {
+          console.log("Presence sync successful");
+        }
+      )
+
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+
+          schema: "public",
+
+          table: "messages",
+        },
+        async (payload) => {
+          const updatedMsg = payload.new;
+
+          const msgIndex = messagesList.findIndex(
+            (m) => m.id === updatedMsg.id
+          );
+
+          if (msgIndex !== -1) {
+            // Preserve existing message data and merge with updates
+
+            messagesList[msgIndex] = {
+              ...messagesList[msgIndex],
+
+              ...updatedMsg,
+
+              full_name: messagesList[msgIndex].full_name,
+
+              avatar_url: messagesList[msgIndex].avatar_url,
+            };
+
+            await appendMessage(messagesList[msgIndex], true);
+          }
+        }
+      )
+
+      .on(
+        "postgres_changes",
+
+        {
+          event: "DELETE",
+
+          schema: "public",
+
+          table: "messages",
+        },
+
+        async (payload) => {
+          try {
+            const deleted = payload.old;
+
+            if (!deleted || !deleted.id) return;
+
+            const index = messagesList.findIndex((m) => m.id === deleted.id);
+
+            if (index !== -1) {
+              messagesList.splice(index, 1);
+
+              localStorage.setItem(
+                "chatMessages",
+                JSON.stringify(messagesList.slice(-100))
+              );
+            }
+
+            const el = document.querySelector(
+              `[data-message-id="${deleted.id}"]`
+            );
+
+            if (el) el.remove();
+
+            // optional: show a subtle toast or animation
+
+            // showToast('Info', 'A message was deleted', 'default');
+          } catch (err) {
+            console.error(
+              "Error handling deleted message realtime event:",
+              err
+            );
+          }
+        }
+      );
+
+    // Subscribe to the channel
+
+    await messagesUpdateChannel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        // Track presence for the current user
+
+        const presenceTrackStatus = await messagesUpdateChannel.track({
+          online_at: new Date().toISOString(),
+
+          username: window.currentUser?.profile?.full_name,
+        });
+
+        if (presenceTrackStatus === "ok") {
+          console.log("Presence tracking successful");
+        }
+      }
+    });
+
+    return messagesUpdateChannel;
+  } catch (error) {
+    console.error("Error setting up message updates subscription:", error);
+
+    throw error;
+  }
+}
+
+// Kirim pesan
+
+async function sendMessage(
+  content,
+  image_url = null,
+  audio_url = null,
+  tempId = null,
+  duration = null
+) {
+  const chatInput = document.getElementById("chatInput");
+
+  const sendMessageBtn = document.getElementById("sendMessageBtn");
+
+  const suggestionList = document.getElementById("mentionSuggestions");
+
+  try {
+    // Cek apakah ini pesan pribadi
+
+    const isPrivateMessage = window.privateChatTarget ? true : false;
+
+    if (!chatInput || !sendMessageBtn) {
+      console.error("Elemen chatInput atau sendMessageBtn tidak ditemukan");
+
+      showToast("Error", "Input element not found", "destructive");
+
+      return;
+    }
+
+    const userId = window.currentUser?.id;
+
+    if (!userId) {
+      showToast("Error", "You are not logged in yet.", "destructive");
+
+      return;
+    }
+
+    const now = Date.now();
+
+    if (
+      content &&
+      lastChatTime[userId] &&
+      now - lastChatTime[userId] < CHAT_COOLDOWN
+    ) {
+      const remaining = Math.ceil(
+        (CHAT_COOLDOWN - (now - lastChatTime[userId])) / 1000
+      );
+
+      showToast(
+        "Warning",
+        `Wait ${remaining} seconds left to chat!`,
+        "destructive"
+      );
+
+      startChatTimer(remaining);
+
+      return;
+    }
+
+    if (
+      (image_url || audio_url) &&
+      lastMediaTime[userId] &&
+      now - lastMediaTime[userId] < MEDIA_COOLDOWN
+    ) {
+      const remaining = Math.ceil(
+        (MEDIA_COOLDOWN - (now - lastMediaTime[userId])) / 1000 / 60
+      );
+
+      showToast(
+        "Warning",
+        `Wait ${remaining} more minutes to send media!`,
+        "destructive"
+      );
+
+      return;
+    }
+
+    if (!content && !image_url && !audio_url) return;
+
+    let filteredContent = content ? filterBadWords(content) : content;
+
+    chatInput.disabled = true;
+
+    sendMessageBtn.disabled = true;
+
+    sendMessageBtn.innerHTML = `<i data-lucide="loader" class="h-4 w-4 animate-spin"></i>`;
+
+    lucide.createIcons();
+
+    const profile =
+      window.currentUser.profile || (await fetchUserProfile(userId));
+
+    window.currentUser.profile = profile;
+
+    const messageData = {
+      user_id: userId,
+
+      full_name: profile.full_name,
+
+      avatar_url: profile.avatar_url,
+
+      content: filteredContent || "[Media]",
+
+      status: "Delivered",
+
+      is_read: false,
+
+      read_at: null,
+
+      likes: [],
+    };
+
+    // support simple direct/private message: set recipient if privateChatTarget present
+
+    if (window.privateChatTarget && isValidUuid(window.privateChatTarget)) {
+      messageData.is_private = true;
+
+      messageData.recipient_id = window.privateChatTarget;
+    }
+
+    if (image_url) messageData.image_url = image_url;
+
+    if (audio_url) {
+      messageData.audio_url = audio_url;
+
+      if (duration) messageData.duration = duration;
+    }
+
+    let mentionedUserIds = [];
+
+    const mentionedUsernames = detectMentions(filteredContent);
+
+    for (const username of mentionedUsernames) {
+      const { data: taggedUser, error } = await supabase
+
+        .from("profiles")
+
+        .select("id")
+
+        .eq("full_name", username)
+
+        .maybeSingle();
+
+      if (error) {
+        console.error(`Gagal mencari pengguna ${username}:`, error);
+
+        continue;
+      }
+
+      if (taggedUser) {
+        mentionedUserIds.push(taggedUser.id);
+      }
+    }
+
+    if (mentionedUserIds.length > 0) {
+      messageData.mentions = mentionedUserIds;
+    }
+
+    // Merge additional fields into the existing messageData object to avoid redeclaration
+
+    if (content) messageData.content = filteredContent || "[Media]";
+
+    if (image_url) messageData.image_url = image_url;
+
+    if (audio_url) {
+      messageData.audio_url = audio_url;
+
+      if (duration) messageData.duration = duration;
+    }
+
+    // Jika ini pesan pribadi, gunakan tabel direct_messages bila tersedia
+
+    if (isPrivateMessage) {
+      if (hasDirectMessagesTable) {
+        try {
+          const { data: dmData, error: dmErr } = await supabase
+
+            .from("direct_messages")
+
+            .insert({
+              sender_id: userId,
+
+              receiver_id: window.privateChatTarget,
+
+              content: messageData.content,
+            })
+
+            .select()
+
+            .single();
+
+          if (dmErr) throw dmErr;
+
+          // cache and UI
+
+          if (!directMessages[window.privateChatTarget])
+            directMessages[window.privateChatTarget] = [];
+
+          directMessages[window.privateChatTarget].push(dmData);
+
+          updateDirectMessageUI(window.privateChatTarget);
+
+          showToast("Success", "Private message sent", "success");
+        } catch (dmErr) {
+          console.error("Failed to send direct message:", dmErr);
+
+          showToast("Error", "Failed to send private message", "error");
+        }
+
+        // done for private mode
+
+        chatInput.disabled = false;
+
+        sendMessageBtn.disabled = false;
+
+        sendMessageBtn.innerHTML = `<i data-lucide="send" class="h-4 w-4"></i>`;
+
+        lucide.createIcons();
+
+        return;
+      } else {
+        // fallback: save locally
+
+        try {
+          const local = JSON.parse(
+            localStorage.getItem("directMessages") || "{}"
+          );
+
+          if (!local[window.privateChatTarget])
+            local[window.privateChatTarget] = [];
+
+          const localMsg = {
+            id: `local-${Date.now()}`,
+
+            sender_id: userId,
+
+            receiver_id: window.privateChatTarget,
+
+            content: messageData.content,
+
+            created_at: new Date().toISOString(),
+          };
+
+          local[window.privateChatTarget].push(localMsg);
+
+          localStorage.setItem("directMessages", JSON.stringify(local));
+
+          if (!directMessages[window.privateChatTarget])
+            directMessages[window.privateChatTarget] = [];
+
+          directMessages[window.privateChatTarget].push(localMsg);
+
+          updateDirectMessageUI(window.privateChatTarget);
+
+          showToast(
+            "Info",
+            "Private messages are not supported on server; saved locally",
+            "info"
+          );
+        } catch (localErr) {
+          console.error("Failed to save local DM:", localErr);
+
+          showToast("Error", "Failed to save private message locally", "error");
+        }
+
+        chatInput.disabled = false;
+
+        sendMessageBtn.disabled = false;
+
+        sendMessageBtn.innerHTML = `<i data-lucide="send" class="h-4 w-4"></i>`;
+
+        lucide.createIcons();
+
+        return;
+      }
+    }
+
+    // Non-private message -> insert into public messages table
+
+    const { data, error: sendError } = await supabase
+
+      .from("messages")
+
+      .insert(messageData)
+
+      .select()
+
+      .single();
+
+    if (sendError) throw sendError;
+
+    if (tempId) {
+      const index = messagesList.findIndex((msg) => msg.id === tempId);
+
+      if (index !== -1) {
+        messagesList[index] = { ...messagesList[index], ...data };
+
+        localStorage.setItem(
+          "chatMessages",
+          JSON.stringify(messagesList.slice(-100))
+        );
+
+        await appendMessage(messagesList[index], true);
+      } else {
+        messagesList.push(data);
+
+        localStorage.setItem(
+          "chatMessages",
+          JSON.stringify(messagesList.slice(-100))
+        );
+
+        await appendMessage(data);
+      }
+    }
+
+    if (content) {
+      lastChatTime[userId] = now;
+
+      startChatTimer(CHAT_COOLDOWN / 1000);
+    }
+
+    if (image_url || audio_url) {
+      lastMediaTime[userId] = now;
+    }
+
+    for (const username of mentionedUsernames) {
+      const { data: taggedUser, error } = await supabase
+
+        .from("profiles")
+
+        .select("id")
+
+        .eq("full_name", username)
+
+        .maybeSingle();
+
+      if (error) {
+        console.error(
+          `Gagal mencari pengguna untuk notifikasi ${username}:`,
+          error
+        );
+
+        continue;
+      }
+
+      if (taggedUser) {
+        const { error: notifyError } = await supabase
+          .from("notifications")
+          .insert({
+            user_id: taggedUser.id,
+
+            type: "mention",
+
+            content: `${profile.full_name} menyebut Anda dalam pesan: "${filteredContent}"`,
+
+            is_read: false,
+          });
+
+        if (notifyError) {
+          console.error(
+            `Gagal mengirim notifikasi untuk ${username}:`,
+            notifyError
+          );
+        } else {
+          showToast("Info", `User @${username} has been tagged`, "default");
+        }
+      }
+    }
+
+    if (filteredContent) chatInput.value = "";
+
+    if (suggestionList) {
+      suggestionList.classList.add("hidden");
+    }
+
+    // if we sent a private message intent, clear the helper
+
+    if (window.privateChatTarget) {
+      window.privateChatTarget = null;
+
+      if (chatInput) chatInput.placeholder = "Type your message....";
+    }
+
+    showToast("Success", "Message sent", "default");
+  } catch (err) {
+    console.error("Failed to send message:", err);
+
+    showToast("Error", "Failed to send message: " + err.message, "destructive");
+  } finally {
+    chatInput.disabled = false;
+
+    sendMessageBtn.disabled = false;
+
+    sendMessageBtn.innerHTML = `<i data-lucide="send" class="h-4 w-4 text-white"></i>`;
+
+    lucide.createIcons();
+  }
+}
+
+// Fungsi timer cooldown chat
+
+function startChatTimer(seconds) {
+  const chatInput = document.getElementById("chatInput");
+
+  const sendMessageBtn = document.getElementById("sendMessageBtn");
+
+  let timeLeft = seconds;
+
+  chatInput.disabled = true;
+
+  sendMessageBtn.disabled = true;
+
+  const timer = setInterval(() => {
+    timeLeft--;
+
+    if (timeLeft <= 0) {
+      clearInterval(timer);
+
+      chatInput.disabled = false;
+
+      sendMessageBtn.disabled = false;
+
+      chatInput.placeholder = "Type your message...";
+    } else {
+      chatInput.placeholder = `Wait ${timeLeft} seconds to chat again...`;
+    }
+  }, 1000);
+}
+
+// Fungsi untuk memperbarui latensi koneksi
+
+function updateConnectionLatency() {
+  const start = Date.now();
+
+  supabase
+    .from("messages")
+    .select("id")
+    .limit(1)
+    .then(() => {
+      const latency = Date.now() - start;
+
+      const connectionLatency = document.getElementById("connectionLatency");
+
+      if (connectionLatency) {
+        connectionLatency.textContent = `${latency}ms`;
+
+        connectionLatency.parentElement.classList.remove("text-red-400");
+
+        connectionLatency.parentElement.classList.add("text-slate-400");
+      }
+    })
+    .catch(() => {
+      const connectionLatency = document.getElementById("connectionLatency");
+
+      if (connectionLatency) {
+        connectionLatency.textContent = "Terputus";
+
+        connectionLatency.parentElement.classList.remove("text-slate-400");
+
+        connectionLatency.parentElement.classList.add("text-red-400");
+      }
+    });
+}
+
+// Fungsi untuk memperbarui daftar pengguna online
+
+function updateOnlineUsers(users) {
+  const onlineUsersList = document.getElementById("onlineUsersList");
+
+  if (!onlineUsersList) {
+    console.error("Elemen onlineUsersList tidak ditemukan di DOM");
+
+    return;
+  }
+
+  onlineUsersList.innerHTML = "";
+
+  if (users.length === 0) {
+    onlineUsersList.innerHTML = `<div class="text-center text-slate-400 py-2">No users online</div>`;
+
+    return;
+  }
+
+  users.forEach((user) => {
+    const userEl = document.createElement("div");
+
+    userEl.className = "flex flex-col items-center";
+
+    const color = user.full_name.includes("Sarah")
+      ? "purple"
+      : user.full_name.includes("Mike")
+      ? "amber"
+      : user.full_name.includes("Lisa")
+      ? "emerald"
+      : user.full_name.includes("Alex")
+      ? "rose"
+      : "blue";
+
+    const statusColor = user.full_name === "Alex" ? "amber" : "emerald";
+
+    let avatarContent = user.full_name ? user.full_name[0].toUpperCase() : "A";
+
+    if (user.avatar_url) {
+      try {
+        const { data: avatarData } = supabase.storage
+
+          .from("avatars")
+
+          .getPublicUrl(user.avatar_url);
+
+        if (avatarData?.publicUrl) {
+          avatarContent = `<img src="${avatarData.publicUrl}" class="h-8 w-8 rounded-full object-cover" alt="Avatar" />`;
+        }
+      } catch (error) {
+        console.error("Gagal ambil avatar:", error);
+      }
+    }
+
+    userEl.innerHTML = `
+
+            <div class="relative">
+
+                <div class="h-8 w-8 rounded-full bg-gradient-to-br from-${color}-500/20 to-${color}-600/20 border border-${color}-500/30 flex items-center justify-center shadow-sm">
+
+                    ${avatarContent}
+
+                </div>
+
+                <div class="absolute bottom-0 right-0 h-2 w-2 bg-${statusColor}-500 rounded-full border border-slate-900"></div>
+
+            </div>
+
+            <span class="text-xs text-slate-400 mt-1 truncate w-10 text-center">${sanitizeHTML(
+              user.full_name.split(" ")[0]
+            )}</span>
+
+        `;
+
+    // make user element clickable to open profile popup
+
+    userEl.style.cursor = "pointer";
+
+    // expose data-user-id for document-level delegation
+
+    try {
+      userEl.dataset.userId = user.id || user.user_id || "";
+    } catch (e) {}
+
+    const userClickHandler = (e) => {
+      e.stopPropagation();
+
+      showUserProfilePopup(user.id || user.user_id);
+    };
+
+    userEl.addEventListener("click", userClickHandler);
+
+    eventListeners.push({
+      element: userEl,
+      event: "click",
+      handler: userClickHandler,
+    });
+
+    onlineUsersList.appendChild(userEl);
+  });
+
+  const onlineCount = document
+    .querySelector("#onlineUsersList")
+    .parentElement.querySelector("span");
+
+  if (onlineCount) {
+    onlineCount.textContent = `Online (${users.length})`;
+  }
+
+  lucide.createIcons();
+}
+
+// Fungsi untuk membersihkan event listener dan subscription
+
+function cleanupChat() {
+  eventListeners.forEach(({ element, event, handler }) => {
+    element.removeEventListener(event, handler);
+  });
+
+  eventListeners = [];
+
+  supabaseChannels.forEach((channel) => {
+    supabase.removeChannel(channel);
+  });
+
+  supabaseChannels = [];
+
+  if (latencyInterval) {
+    clearInterval(latencyInterval);
+  }
+
+  if (presenceInterval) {
+    clearInterval(presenceInterval);
+
+    presenceInterval = null;
+  }
+
+  messagesList = [];
+
+  adminMessagesList = [];
+
+  onlineUsers = [];
+
+  isChatInitialized = false;
+
+  localStorage.removeItem("chatMessages");
+
+  lastChatTime = {};
+
+  lastMediaTime = {};
+
+  const chatMessages = document.getElementById("chatMessages");
+
+  const adminMessages = document.getElementById("adminMessages");
+
+  if (chatMessages) chatMessages.innerHTML = "";
+
+  if (adminMessages) adminMessages.innerHTML = "";
+}
+
+// Fungsi untuk mengikat event listener
+
+function bindEventListeners() {
+  const chatInput = document.getElementById("chatInput");
+
+  const sendMessageBtn = document.getElementById("sendMessageBtn");
+
+  const uploadImageButton = document.getElementById("uploadImageButton");
+
+  const imageInput = document.getElementById("imageInput");
+
+  const recordVoiceBtn = document.getElementById("recordVoiceBtn");
+
+  const suggestionList = document.getElementById("mentionSuggestions");
+
+  const emojiPickerBtn = document.getElementById("emojiPickerBtn");
+
+  const voiceCallBtn = document.getElementById("voiceCallBtn");
+
+  const videoCallBtn = document.getElementById("videoCallBtn");
+
+  const refreshChatBtn = document.getElementById("refreshChatBtn");
+
+  const expandUsersBtn = document.getElementById("expandUsersBtn");
+
+  if (!chatInput || !sendMessageBtn) {
+    console.error("Elemen chatInput atau sendMessageBtn tidak ditemukan");
+
+    return;
+  }
+
+  // Bersihkan semua listener sebelumnya
+
+  eventListeners.forEach(({ element, event, handler }) => {
+    element.removeEventListener(event, handler);
+  });
+
+  eventListeners = [];
+
+  const sendMessageHandler = async () => {
+    const content = chatInput.value.trim();
+
+    if (content) await sendMessage(content);
+
+    chatInput.focus();
+
+    if (suggestionList) {
+      suggestionList.classList.add("hidden");
+    }
+  };
+
+  sendMessageBtn.addEventListener("click", sendMessageHandler);
+
+  eventListeners.push({
+    element: sendMessageBtn,
+    event: "click",
+    handler: sendMessageHandler,
+  });
+
+  const keypressHandler = async (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+
+      const content = chatInput.value.trim();
+
+      if (content) await sendMessage(content);
+
+      chatInput.focus();
+
+      if (suggestionList) {
+        suggestionList.classList.add("hidden");
+      }
+    }
+  };
+
+  chatInput.addEventListener("keypress", keypressHandler);
+
+  eventListeners.push({
+    element: chatInput,
+    event: "keypress",
+    handler: keypressHandler,
+  });
+
+  let isTyping = false;
+
+  let typingChannel = null;
+
+  const inputHandler = async () => {
+    if (!typingChannel) {
+      typingChannel = supabase.channel("typing");
+
+      typingChannel.subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          if (isTyping) {
+            typingChannel
+              .track({
+                user_id: window.currentUser.id,
+
+                full_name: window.currentUser.profile.full_name,
+
+                isTyping: true,
+              })
+              .catch((err) => console.error("Gagal track typing:", err));
+          }
+        }
+      });
+
+      supabaseChannels.push(typingChannel);
+    }
+
+    if (!isTyping) {
+      isTyping = true;
+
+      if (typingChannel.state === "SUBSCRIBED") {
+        typingChannel
+          .track({
+            user_id: window.currentUser.id,
+
+            full_name: window.currentUser.profile.full_name,
+
+            isTyping: true,
+          })
+          .catch((err) => console.error("Gagal track typing:", err));
+      }
+    }
+
+    clearTimeout(window.typingTimeout);
+
+    window.typingTimeout = setTimeout(() => {
+      isTyping = false;
+
+      if (typingChannel.state === "SUBSCRIBED") {
+        typingChannel
+          .track({
+            user_id: window.currentUser.id,
+
+            full_name: window.currentUser.profile.full_name,
+
+            isTyping: false,
+          })
+          .catch((err) => console.error("Gagal untrack typing:", err));
+      }
+    }, 2000);
+
+    const cursorPos = chatInput.selectionStart;
+
+    const textBeforeCursor = chatInput.value.substring(0, cursorPos);
+
+    const mentionMatch = textBeforeCursor.match(/@([\w\s]*)$/);
+
+    if (mentionMatch) {
+      const query = mentionMatch[1];
+
+      await showMentionSuggestions(query, chatInput, suggestionList);
+    } else {
+      if (suggestionList) {
+        suggestionList.classList.add("hidden");
+      }
+    }
+
+    chatInput.style.height = "auto";
+
+    chatInput.style.height = `${chatInput.scrollHeight}px`;
+  };
+
+  chatInput.addEventListener("input", inputHandler);
+
+  eventListeners.push({
+    element: chatInput,
+    event: "input",
+    handler: inputHandler,
+  });
+
+  if (uploadImageButton && imageInput) {
+    const triggerImageInput = () => {
+      imageInput.click();
+    };
+
+    uploadImageButton.addEventListener("click", triggerImageInput);
+
+    eventListeners.push({
+      element: uploadImageButton,
+      event: "click",
+      handler: triggerImageInput,
+    });
+
+    const handleImageUpload = async (event) => {
+      const file = event.target.files[0];
+
+      if (!file) return;
+
+      const userId = window.currentUser?.id;
+
+      if (!userId) {
+        showToast("Error", "You are not logged in yet.", "destructive");
+
+        return;
+      }
+
+      const now = Date.now();
+
+      if (
+        lastMediaTime[userId] &&
+        now - lastMediaTime[userId] < MEDIA_COOLDOWN
+      ) {
+        const remaining = Math.ceil(
+          (MEDIA_COOLDOWN - (now - lastMediaTime[userId])) / 1000 / 60
+        );
+
+        showToast(
+          "Warning",
+          `wait ${remaining} another minute to send a picture!`,
+          "destructive"
+        );
+
+        return;
+      }
+
+      // Validasi ukuran file (maks 5MB)
+
+      const maxSizeMB = 5;
+
+      if (file.size > maxSizeMB * 1024 * 1024) {
+        showToast("Error", `Maximum image size ${maxSizeMB}MB`, "destructive");
+
+        return;
+      }
+
+      if (window.isSendingMedia) {
+        showToast(
+          "Peringatan",
+          "Currently uploading media, please wait.",
+          "destructive"
+        );
+
+        return;
+      }
+
+      window.isSendingMedia = true;
+
+      showToast("Info", "Uploading images...", "default");
+
+      try {
+        const filePath = `chat_images/${Date.now()}_${file.name}`;
+
+        const { error } = await supabase.storage
+          .from("chat-media")
+          .upload(filePath, file);
+
+        if (error) throw error;
+
+        const { data } = supabase.storage
+          .from("chat-media")
+          .getPublicUrl(filePath);
+
+        const img = new Image();
+
+        img.crossOrigin = "anonymous";
+
+        img.src = data.publicUrl;
+
+        await new Promise((resolve) => (img.onload = resolve));
+
+        const canvas = document.createElement("canvas");
+
+        const ctx = canvas.getContext("2d");
+
+        const maxWidth = 200;
+
+        let width = img.width;
+
+        let height = img.height;
+
+        if (width > maxWidth) {
+          height *= maxWidth / width;
+
+          width = maxWidth;
+        }
+
+        canvas.width = width;
+
+        canvas.height = height;
+
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const resizedUrl = canvas.toDataURL("image/jpeg");
+
+        const tempId = `temp-${Date.now()}`;
+
+        await sendMessage("🖼️", resizedUrl, null, tempId);
+      } catch (error) {
+        console.error("Failed to upload image:", error);
+
+        showToast(
+          "Error",
+          "Failed to upload image: " + error.message,
+          "destructive"
+        );
+      } finally {
+        event.target.value = "";
+
+        window.isSendingMedia = false;
+      }
+    };
+
+    imageInput.addEventListener("change", handleImageUpload);
+
+    eventListeners.push({
+      element: imageInput,
+      event: "change",
+      handler: handleImageUpload,
+    });
+  }
+
+  if (recordVoiceBtn) {
+    const createVoiceRecorderUI = () => {
+      const modal = document.createElement("div");
+
+      modal.id = "voiceRecorderModal";
+
+      modal.className =
+        "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden";
+
+      modal.innerHTML = `
+
+            <div class="bg-slate-800 p-6 rounded-lg shadow-lg w-80 transform transition-all duration-300">
+
+                <h3 class="text-lg font-semibold text-white mb-4">Rekam Suara</h3>
+
+                <div class="flex items-center justify-center mb-4">
+
+                    <span id="voiceTimer" class="text-xl text-cyan-400 font-mono">00:00</span>
+
+                </div>
+
+                <div id="waveformAnimation" class="h-8 flex items-center justify-center gap-1">
+
+                    <div class="bar bg-cyan-500 w-1 rounded" style="animation: wave 0.5s infinite"></div>
+
+                    <div class="bar bg-cyan-500 w-1 rounded" style="animation: wave 0.5s infinite 0.1s"></div>
+
+                    <div class="bar bg-cyan-500 w-1 rounded" style="animation: wave 0.5s infinite 0.2s"></div>
+
+                    <div class="bar bg-cyan-500 w-1 rounded" style="animation: wave 0.5s infinite 0.3s"></div>
+
+                    <div class="bar bg-cyan-500 w-1 rounded" style="animation: wave 0.5s infinite 0.4s"></div>
+
+                </div>
+
+                <div class="flex justify-center space-x-4 mt-4">
+
+                    <button id="startRecordBtn" class="px-4 py-2 bg-cyan-600 text-white rounded-full hover:bg-cyan-500 flex items-center">
+
+                        <i data-lucide="mic" class="h-4 w-4 mr-2"></i>Rekam
+
+                    </button>
+
+                    <button id="stopRecordBtn" class="px-4 py-2 bg-red-600 text-white rounded-full hover:bg-red-500 flex items-center hidden">
+
+                        <i data-lucide="square" class="h-4 w-4 mr-2"></i>Stop
+
+                    </button>
+
+                </div>
+
+                <div id="previewControls" class="hidden mt-4">
+
+                    <div class="flex items-center justify-center mb-2">
+
+                        <button id="playPreviewBtn" class="p-2 bg-cyan-500/20 rounded-full">
+
+                            <svg class="play-icon" width="16" height="16" viewBox="0 0 24 24">
+
+                                <path fill="currentColor" d="M8 5v14l11-7z"/>
+
+                            </svg>
+
+                            <svg class="pause-icon" width="16" height="16" viewBox="0 0 24 24" style="display:none">
+
+                                <path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+
+                            </svg>
+
+                        </button>
+
+                        <span id="previewDuration" class="ml-2 text-xs text-slate-400">00:00</span>
+
+                    </div>
+
+                    <div class="flex justify-center space-x-2">
+
+                        <button id="cancelVoiceBtn" class="px-4 py-2 bg-slate-600 text-white rounded hover:bg-slate-500">cancel</button>
+
+                        <button id="sendVoiceBtn" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-500">Send</button>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+            <style>
+
+                @keyframes wave {
+
+                    0%, 100% { height: 8px; }
+
+                    50% { height: 24px; }
+
+                }
+
+                .bar { height: 8px; }
+
+            </style>
+
+        `;
+
+      document.body.appendChild(modal);
+
+      lucide.createIcons();
+
+      return modal;
+    };
+
+    const handleVoiceRecord = async () => {
+      const userId = window.currentUser?.id;
+
+      if (!userId) {
+        showToast("Error", "You are not logged in yet.", "destructive");
+
+        return;
+      }
+
+      const now = Date.now();
+
+      if (
+        lastMediaTime[userId] &&
+        now - lastMediaTime[userId] < MEDIA_COOLDOWN
+      ) {
+        const remaining = Math.ceil(
+          (MEDIA_COOLDOWN - (now - lastMediaTime[userId])) / 1000 / 60
+        );
+
+        showToast(
+          "Warning",
+          `Wait ${remaining} another minute to send the voice!`,
+          "destructive"
+        );
+
+        return;
+      }
+
+      if (window.isSendingMedia) {
+        showToast(
+          "Warning",
+          "Currently uploading media, please wait.",
+          "destructive"
+        );
+
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+
+        const mediaRecorder = new MediaRecorder(stream);
+
+        let audioChunks = [];
+
+        let startTime;
+
+        let timerInterval;
+
+        const maxDuration = 120; // 2 menit
+
+        const modal =
+          document.getElementById("voiceRecorderModal") ||
+          createVoiceRecorderUI();
+
+        const startBtn = modal.querySelector("#startRecordBtn");
+
+        const stopBtn = modal.querySelector("#stopRecordBtn");
+
+        const playBtn = modal.querySelector("#playPreviewBtn");
+
+        const cancelBtn = modal.querySelector("#cancelVoiceBtn");
+
+        const sendBtn = modal.querySelector("#sendVoiceBtn");
+
+        const timerDisplay = modal.querySelector("#voiceTimer");
+
+        const previewDuration = modal.querySelector("#previewDuration");
+
+        const waveform = modal.querySelector("#waveformAnimation");
+
+        const previewControls = modal.querySelector("#previewControls");
+
+        const playIcon = playBtn.querySelector(".play-icon");
+
+        const pauseIcon = playBtn.querySelector(".pause-icon");
+
+        modal.classList.remove("hidden");
+
+        const updateTimer = () => {
+          const elapsed = Math.floor((Date.now() - startTime) / 1000);
+
+          const minutes = Math.floor(elapsed / 60);
+
+          const seconds = elapsed % 60;
+
+          timerDisplay.textContent = `${minutes
+            .toString()
+            .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+
+          if (elapsed >= maxDuration) {
+            mediaRecorder.stop();
+          }
+        };
+
+        mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+
+        mediaRecorder.onstop = async () => {
+          clearInterval(timerInterval);
+
+          waveform.classList.add("hidden");
+
+          previewControls.classList.remove("hidden");
+
+          startBtn.classList.add("hidden");
+
+          stopBtn.classList.add("hidden");
+
+          const blob = new Blob(audioChunks, { type: "audio/webm" });
+
+          const audioUrl = URL.createObjectURL(blob);
+
+          const audio = new Audio(audioUrl);
+
+          const duration = Math.floor((Date.now() - startTime) / 1000);
+
+          const minutes = Math.floor(duration / 60);
+
+          const seconds = duration % 60;
+
+          previewDuration.textContent = `${minutes
+            .toString()
+            .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+
+          const playHandler = () => {
+            if (audio.paused) {
+              audio.play();
+
+              playIcon.style.display = "none";
+
+              pauseIcon.style.display = "block";
+            } else {
+              audio.pause();
+
+              playIcon.style.display = "block";
+
+              pauseIcon.style.display = "none";
+            }
+          };
+
+          playBtn.addEventListener("click", playHandler);
+
+          eventListeners.push({
+            element: playBtn,
+            event: "click",
+            handler: playHandler,
+          });
+
+          audio.addEventListener("ended", () => {
+            playIcon.style.display = "block";
+
+            pauseIcon.style.display = "none";
+          });
+
+          const sendHandler = async () => {
+            if (window.isSendingMedia) return;
+
+            window.isSendingMedia = true;
+
+            sendBtn.disabled = true;
+
+            sendBtn.innerHTML = `<i data-lucide="loader" class="h-4 w-4 animate-spin"></i>`;
+
+            try {
+              const fileName = `voice_notes/${Date.now()}.webm`;
+
+              const { error } = await supabase.storage
+
+                .from("chat-media")
+
+                .upload(fileName, blob, { contentType: "audio/webm" });
+
+              if (error) throw error;
+
+              const { data } = supabase.storage
+                .from("chat-media")
+                .getPublicUrl(fileName);
+
+              const tempId = `temp-${Date.now()}`;
+
+              await sendMessage("🔊", null, data.publicUrl, tempId, duration);
+
+              modal.classList.add("hidden");
+
+              showToast("Success", "Voice note sent", "default");
+            } catch (error) {
+              console.error("Failed to upload voice note:", error);
+
+              showToast(
+                "Error",
+                "Failed to upload voice note: " + error.message,
+                "destructive"
+              );
+            } finally {
+              window.isSendingMedia = false;
+
+              sendBtn.disabled = false;
+
+              sendBtn.innerHTML = `<i data-lucide="send" class="h-4 w-4"></i>`;
+
+              lucide.createIcons();
+
+              stream.getTracks().forEach((track) => track.stop());
+
+              URL.revokeObjectURL(audioUrl);
+
+              audioChunks = [];
+
+              audio.remove();
+
+              modal.remove();
+            }
+          };
+
+          sendBtn.addEventListener("click", sendHandler);
+
+          eventListeners.push({
+            element: sendBtn,
+            event: "click",
+            handler: sendHandler,
+          });
+
+          const cancelHandler = () => {
+            mediaRecorder.stop();
+
+            modal.classList.add("hidden");
+
+            stream.getTracks().forEach((track) => track.stop());
+
+            clearInterval(timerInterval);
+
+            audioChunks = [];
+
+            URL.revokeObjectURL(audioUrl);
+
+            if (audio) audio.remove();
+
+            modal.remove();
+          };
+
+          cancelBtn.addEventListener("click", cancelHandler);
+
+          eventListeners.push({
+            element: cancelBtn,
+            event: "click",
+            handler: cancelHandler,
+          });
+        };
+
+        const startHandler = () => {
+          mediaRecorder.start();
+
+          startTime = Date.now();
+
+          timerInterval = setInterval(updateTimer, 1000);
+
+          waveform.classList.remove("hidden");
+
+          startBtn.classList.add("hidden");
+
+          stopBtn.classList.remove("hidden");
+        };
+
+        startBtn.addEventListener("click", startHandler);
+
+        eventListeners.push({
+          element: startBtn,
+          event: "click",
+          handler: startHandler,
+        });
+
+        const stopHandler = () => {
+          mediaRecorder.stop();
+        };
+
+        stopBtn.addEventListener("click", stopHandler);
+
+        eventListeners.push({
+          element: stopBtn,
+          event: "click",
+          handler: stopHandler,
+        });
+      } catch (err) {
+        console.error("Failed to record sound:", err);
+
+        showToast(
+          "Error",
+          "Failed to record sound: " + err.message,
+          "destructive"
+        );
+
+        window.isSendingMedia = false;
+      }
+    };
+
+    recordVoiceBtn.addEventListener("click", handleVoiceRecord);
+
+    eventListeners.push({
+      element: recordVoiceBtn,
+      event: "click",
+      handler: handleVoiceRecord,
+    });
+  }
+
+  if (emojiPickerBtn) {
+    const emojis = ["😊", "😂", "👍", "❤️", "🔥", "👀", "🙌", "💡"];
+
+    const picker = document.createElement("div");
+
+    picker.className =
+      "absolute bottom-12 left-0 bg-slate-800/90 border border-slate-700/30 rounded-lg p-2 shadow-lg z-10 hidden flex-wrap gap-2";
+
+    emojis.forEach((emoji) => {
+      const btn = document.createElement("button");
+
+      btn.className = "text-lg hover:bg-slate-700/50 rounded p-1";
+
+      btn.textContent = emoji;
+
+      const emojiHandler = () => {
+        chatInput.value += emoji;
+
+        picker.classList.add("hidden");
+
+        chatInput.focus();
+      };
+
+      btn.addEventListener("click", emojiHandler);
+
+      eventListeners.push({
+        element: btn,
+        event: "click",
+        handler: emojiHandler,
+      });
+
+      picker.appendChild(btn);
+    });
+
+    emojiPickerBtn.parentElement.appendChild(picker);
+
+    const togglePicker = () => picker.classList.toggle("hidden");
+
+    emojiPickerBtn.addEventListener("click", togglePicker);
+
+    eventListeners.push({
+      element: emojiPickerBtn,
+      event: "click",
+      handler: togglePicker,
+    });
+  }
+
+  if (voiceCallBtn) {
+    const voiceCallHandler = () =>
+      showToast("Info", "Voice call feature not yet available", "default");
+
+    voiceCallBtn.addEventListener("click", voiceCallHandler);
+
+    eventListeners.push({
+      element: voiceCallBtn,
+      event: "click",
+      handler: voiceCallHandler,
+    });
+  }
+
+  if (videoCallBtn) {
+    const videoCallHandler = () =>
+      showToast("Info", "Video calling feature not yet available", "default");
+
+    videoCallBtn.addEventListener("click", videoCallHandler);
+
+    eventListeners.push({
+      element: videoCallBtn,
+      event: "click",
+      handler: videoCallHandler,
+    });
+  }
+
+  if (refreshChatBtn) {
+    const refreshChatHandler = async () => {
+      refreshChatBtn.disabled = true;
+
+      refreshChatBtn.querySelector("i").classList.add("animate-spin");
+
+      await initializeChat();
+
+      refreshChatBtn.disabled = false;
+
+      refreshChatBtn.querySelector("i").classList.remove("animate-spin");
+    };
+
+    refreshChatBtn.addEventListener("click", refreshChatHandler);
+
+    eventListeners.push({
+      element: refreshChatBtn,
+      event: "click",
+      handler: refreshChatHandler,
+    });
+  }
+
+  if (expandUsersBtn) {
+    const toggleUsersList = () => {
+      const onlineUsersList = document.getElementById("onlineUsersList");
+
+      onlineUsersList.classList.toggle("hidden");
+
+      const icon = expandUsersBtn.querySelector("i");
+
+      icon.classList.toggle("rotate-180");
+    };
+
+    expandUsersBtn.addEventListener("click", toggleUsersList);
+
+    eventListeners.push({
+      element: expandUsersBtn,
+      event: "click",
+      handler: toggleUsersList,
+    });
+  }
+}
+
+// Fungsi untuk memeriksa dan memulihkan koneksi realtime
+
+async function checkRealtimeConnection() {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session) return;
+
+  const status = await supabase.channel("system").subscribe(async (status) => {
+    if (status === "SUBSCRIBED") {
+      console.log("Realtime connection restored");
+    }
+  });
+
+  return status;
+}
+
+// Fungsi untuk menandai pesan sebagai telah dibaca
+
+async function markMessageAsRead(messageId) {
+  try {
+    const { data, error } = await supabase
+
+      .from("messages")
+
+      .update({
+        is_read: true,
+
+        read_at: new Date().toISOString(),
+
+        status: "Read",
+      })
+
+      .eq("id", messageId)
+
+      .select();
+
+    if (error) throw error;
+
+    return data;
+  } catch (err) {
+    console.error("Error marking message as read:", err);
+
+    return null;
+  }
+}
+
+// Handle ketika pesan dibaca oleh penerima
+
+function handleMessageRead(messageId, readBy, readAt) {
+  const msgIndex = messagesList.findIndex((m) => m.id === messageId);
+
+  if (msgIndex !== -1) {
+    messagesList[msgIndex].is_read = true;
+
+    messagesList[msgIndex].status = "Read";
+
+    messagesList[msgIndex].read_at = readAt;
+
+    // Update UI untuk menampilkan status read
+
+    const statusElement = document.querySelector(
+      `[data-message-id="${messageId}"] .message-status`
+    );
+
+    if (statusElement) {
+      statusElement.innerHTML = `
+
+              <i data-lucide="check-check" class="h-3 w-3 mr-1 text-emerald-400"></i>
+
+              <span>Read ${new Date(readAt).toLocaleTimeString()}</span>
+
+            `;
+
+      lucide.createIcons();
+    }
+  }
+}
+
+// Helper: apakah pesan bisa diedit (15 menit dari pengiriman)
+
+function canEditMessage(msg) {
+  try {
+    if (!msg || !window.currentUser) return false;
+
+    if (msg.user_id !== window.currentUser.id) return false;
+
+    if (msg.deleted_for_all) return false;
+
+    const created = new Date(msg.created_at).getTime();
+
+    const age = Date.now() - created;
+
+    return age <= 15 * 60 * 1000; // 15 minutes
+  } catch (e) {
+    return false;
+  }
+}
+
+// Helper: apakah pesan bisa dihapus untuk semua (20 menit)
+
+function canDeleteForEveryone(msg) {
+  try {
+    if (!msg || !window.currentUser) return false;
+
+    if (msg.user_id !== window.currentUser.id) return false;
+
+    if (msg.deleted_for_all) return false;
+
+    const created = new Date(msg.created_at).getTime();
+
+    const age = Date.now() - created;
+
+    return age <= 20 * 60 * 1000; // 20 minutes
+  } catch (e) {
+    return false;
+  }
+}
+
+// Hapus pesan hanya untuk saya (local only)
+
+async function deleteMessageForMe(messageId) {
+  try {
+    if (!window.currentUser?.id) return;
+
+    const userKey = `deleted_for_${window.currentUser.id}`;
+
+    const raw = localStorage.getItem(userKey);
+
+    const arr = raw ? JSON.parse(raw) : [];
+
+    if (!arr.includes(messageId)) arr.push(messageId);
+
+    localStorage.setItem(userKey, JSON.stringify(arr));
+
+    // Remove from local list and DOM
+
+    const index = messagesList.findIndex((m) => m.id === messageId);
+
+    if (index !== -1) messagesList.splice(index, 1);
+
+    const el = document.querySelector(`[data-message-id="${messageId}"]`);
+
+    if (el) el.remove();
+  } catch (err) {
+    console.error("deleteMessageForMe error:", err);
+  }
+}
+
+// Hapus pesan untuk semua (reset konten, tandai deleted_for_all)
+
+async function deleteMessageForEveryone(messageId) {
+  try {
+    const index = messagesList.findIndex((m) => m.id === messageId);
+
+    if (index === -1) return;
+
+    const msg = messagesList[index];
+
+    if (!canDeleteForEveryone(msg)) {
+      showToast(
+        "Error",
+        "Cannot delete for everyone: time limit exceeded",
+        "destructive"
+      );
+
+      return;
+    }
+
+    // Delete row from database so it's removed for everyone
+
+    const { data, error } = await supabase
+      .from("messages")
+      .delete()
+      .eq("id", messageId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Failed to delete message for everyone:", error);
+
+      showToast(
+        "Error",
+        "Failed to delete for everyone: " + error.message,
+        "destructive"
+      );
+
+      return;
+    }
+
+    // Remove locally as well
+
+    messagesList.splice(index, 1);
+
+    const el = document.querySelector(`[data-message-id="${messageId}"]`);
+
+    if (el) el.remove();
+  } catch (err) {
+    console.error("deleteMessageForEveryone error:", err);
+  }
+}
+
+// Mulai proses edit pesan: ganti bubble dengan editor kecil
+
+function startEditMessage(messageId) {
+  const index = messagesList.findIndex((m) => m.id === messageId);
+
+  if (index === -1) return;
+
+  const msg = messagesList[index];
+
+  if (!canEditMessage(msg)) {
+    showToast("Error", "Edit time window expired", "destructive");
+
+    return;
+  }
+
+  const messageEl = document.querySelector(`[data-message-id="${messageId}"]`);
+
+  if (!messageEl) return;
+
+  const contentEl = messageEl.querySelector(".text-sm");
+
+  if (!contentEl) return;
+
+  // Replace content with editor
+
+  const textarea = document.createElement("textarea");
+
+  textarea.className = "w-full p-2 bg-slate-800 text-white rounded";
+
+  textarea.value = msg.content || "";
+
+  const controls = document.createElement("div");
+
+  controls.className = "flex justify-end gap-2 mt-2";
+
+  controls.innerHTML = `
+
+          <button class="cancel-edit px-3 py-1 bg-slate-600 rounded text-sm">Cancel</button>
+
+          <button class="save-edit px-3 py-1 bg-cyan-600 rounded text-sm">Save</button>
+
+        `;
+
+  // Hide original content and append editor
+
+  contentEl.style.display = "none";
+
+  const editorWrapper = document.createElement("div");
+
+  editorWrapper.className = "edit-wrapper";
+
+  editorWrapper.appendChild(textarea);
+
+  editorWrapper.appendChild(controls);
+
+  contentEl.parentElement.appendChild(editorWrapper);
+
+  const cancelBtn = controls.querySelector(".cancel-edit");
+
+  const saveBtn = controls.querySelector(".save-edit");
+
+  const cleanupEditor = () => {
+    editorWrapper.remove();
+
+    contentEl.style.display = "";
+  };
+
+  cancelBtn.addEventListener("click", cleanupEditor);
+
+  saveBtn.addEventListener("click", async () => {
+    const newContent = textarea.value.trim();
+
+    if (newContent === msg.content) {
+      cleanupEditor();
+
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("messages")
+        .update({
+          content: newContent,
+          edited: true,
+          edited_at: new Date().toISOString(),
+        })
+        .eq("id", messageId)
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Failed to save edited message:", error);
+
+        showToast(
+          "Error",
+          "Failed to edit message: " + error.message,
+          "destructive"
+        );
+
+        return;
+      }
+
+      messagesList[index] = { ...messagesList[index], ...data };
+
+      await appendMessage(messagesList[index], true);
+
+      cleanupEditor();
+    } catch (err) {
+      console.error("save edit error:", err);
+    }
+  });
+}
+
+// Modal confirmation popup (replaces native confirm)
+
+function showConfirm(
+  title = "Confirm",
+  message = "",
+  confirmText = "Yes",
+  cancelText = "Cancel"
+) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+
+    overlay.className =
+      "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60";
+
+    const dialog = document.createElement("div");
+
+    dialog.className =
+      "bg-slate-800 text-white rounded-lg p-4 max-w-md w-full shadow-lg";
+
+    dialog.innerHTML = `
+
+      <div class="font-semibold text-lg mb-2">${sanitizeHTML(title)}</div>
+
+      <div class="text-sm text-slate-300 mb-4">${sanitizeHTML(message)}</div>
+
+      <div class="flex justify-end gap-2">
+
+        <button class="confirm-cancel px-3 py-1 bg-slate-600 rounded text-sm">${sanitizeHTML(
+          cancelText
+        )}</button>
+
+        <button class="confirm-ok px-3 py-1 bg-rose-600 rounded text-sm">${sanitizeHTML(
+          confirmText
+        )}</button>
+
+      </div>
+
+    `;
+
+    overlay.appendChild(dialog);
+
+    document.body.appendChild(overlay);
+
+    const cleanup = (val) => {
+      try {
+        overlay.remove();
+      } catch (e) {
+        /* ignore */
+      }
+
+      resolve(val);
+    };
+
+    const okBtn = dialog.querySelector(".confirm-ok");
+
+    const cancelBtn = dialog.querySelector(".confirm-cancel");
+
+    const onOk = (e) => {
+      e.preventDefault();
+      cleanup(true);
+    };
+
+    const onCancel = (e) => {
+      e.preventDefault();
+      cleanup(false);
+    };
+
+    okBtn.addEventListener("click", onOk);
+
+    cancelBtn.addEventListener("click", onCancel);
+
+    // close when clicking outside the dialog
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) cleanup(false);
+    });
+
+    // allow ESC to cancel
+
+    const escHandler = (e) => {
+      if (e.key === "Escape") {
+        cleanup(false);
+        document.removeEventListener("keydown", escHandler);
+      }
+    };
+
+    document.addEventListener("keydown", escHandler);
+  });
+}
+
+// Inisialisasi chat
+
+async function initializeChat() {
+  if (isChatInitialized) {
+    console.log("Chat sudah diinisialisasi, melewati...");
+
+    return;
+  }
+
+  if (!window.currentUser) {
+    console.log("Tidak ada pengguna, menonaktifkan chat...");
+
+    disableChat();
+
+    return;
+  }
+
+  if (!isValidUuid(window.currentUser.id)) {
+    console.error(`Invalid user ID: ${window.currentUser.id}`);
+
+    showToast("Error", "Invalid user ID", "destructive");
+
+    disableChat();
+
+    return;
+  }
+
+  // Check database schema support
+
+  await checkDatabaseSchema();
+
+  console.log("Menginisialisasi chat...");
+
+  isChatInitialized = true;
+
+  try {
+    const chatInput = document.getElementById("chatInput");
+
+    const sendMessageBtn = document.getElementById("sendMessageBtn");
+
+    const chatMessages = document.getElementById("chatMessages");
+
+    const adminMessages = document.getElementById("adminMessages");
+
+    if (!chatInput || !sendMessageBtn || !chatMessages || !adminMessages) {
+      console.error("Elemen DOM tidak ditemukan");
+
+      showToast("Error", "DOM element not found", "destructive");
+
+      return;
+    }
+
+    const profile = await fetchUserProfile(window.currentUser.id);
+
+    window.currentUser.profile = profile;
+
+    chatInput.disabled = false;
+
+    sendMessageBtn.disabled = false;
+
+    chatInput.placeholder = "Type your message....";
+
+    const { data: adminData, error: adminError } = await supabase
+
+      .from("admin_messages")
+
+      .select("*")
+
+      .order("created_at", { ascending: true })
+
+      .limit(10);
+
+    if (adminError) throw adminError;
+
+    adminMessagesList = adminData || [];
+
+    adminMessages.innerHTML = "";
+
+    for (const msg of adminMessagesList) {
+      await appendAdminMessage(msg);
+    }
+
+    const cached = JSON.parse(localStorage.getItem("chatMessages") || "[]");
+
+    messagesList = cached;
+
+    for (const msg of messagesList) {
+      await appendMessage(msg);
+    }
+
+    const { data, error } = await supabase
+
+      .from("messages")
+
+      .select("*, profiles(full_name, avatar_url)")
+
+      .order("created_at", { ascending: true })
+
+      .limit(50);
+
+    if (error) throw error;
+
+    // Filter out messages that the current user deleted locally
+
+    const localDeletedKey = `deleted_for_${window.currentUser.id}`;
+
+    const localDeletedRaw = localStorage.getItem(localDeletedKey);
+
+    const localDeleted = localDeletedRaw ? JSON.parse(localDeletedRaw) : [];
+
+    messagesList = (data || []).filter((m) => !localDeleted.includes(m.id));
+
+    localStorage.setItem("chatMessages", JSON.stringify(messagesList));
+
+    chatMessages.innerHTML = "";
+
+    for (const msg of messagesList) {
+      await appendMessage(msg);
+    }
+
+    const adminChannel = supabase
+
+      .channel("realtime-admin-messages")
+
+      .on(
+        "postgres_changes",
+
+        {
+          event: "INSERT",
+
+          schema: "public",
+
+          table: "admin_messages",
+        },
+
+        async (payload) => {
+          const msg = payload.new;
+
+          if (
+            adminMessagesList.some((existingMsg) => existingMsg.id === msg.id)
+          )
+            return;
+
+          adminMessagesList.push(msg);
+
+          await appendAdminMessage(msg);
+
+          showToast("Info”, ”New admin message", "default");
+        }
+      )
+
+      .subscribe();
+
+    supabaseChannels.push(adminChannel);
+
+    try {
+      // Subscribe to message updates
+
+      const updateChannel = await subscribeToMessageUpdates();
+
+      if (updateChannel) {
+        supabaseChannels.push(updateChannel);
+
+        console.log("Successfully subscribed to message updates");
+      }
+    } catch (error) {
+      console.error("Failed to subscribe to message updates:", error);
+    }
+
+    // Subscribe to read status updates
+
+    messagesList.forEach((msg) => {
+      if (msg.user_id === window.currentUser?.id && !msg.is_read) {
+        const readStatusChannel = supabase.channel(`message-${msg.id}`);
+
+        readStatusChannel
+
+          .on("broadcast", { event: "message_read" }, (payload) => {
+            handleMessageRead(
+              payload.payload.message_id,
+
+              payload.payload.read_by,
+
+              payload.payload.read_at
+            );
+          })
+
+          .subscribe();
+
+        supabaseChannels.push(readStatusChannel);
+      }
+    });
+
+    const messagesChannel = supabase
+
+      .channel("realtime-messages")
+
+      .on(
+        "postgres_changes",
+
+        {
+          event: "INSERT",
+
+          schema: "public",
+
+          table: "messages",
+        },
+
+        async (payload) => {
+          const msg = payload.new;
+
+          const existingMsgIndex = messagesList.findIndex(
+            (m) => m.id === msg.id
+          );
+
+          if (existingMsgIndex !== -1) {
+            const profile = await fetchUserProfile(msg.user_id);
+
+            msg.full_name = profile.full_name;
+
+            msg.avatar_url = profile.avatar_url;
+
+            messagesList[existingMsgIndex] = {
+              ...msg,
+              full_name: profile.full_name,
+              avatar_url: profile.avatar_url,
+            };
+
+            localStorage.setItem(
+              "chatMessages",
+              JSON.stringify(messagesList.slice(-100))
+            );
+
+            await appendMessage(messagesList[existingMsgIndex], true);
+
+            return;
+          }
+
+          const profile = await fetchUserProfile(msg.user_id);
+
+          msg.full_name = profile.full_name;
+
+          msg.avatar_url = profile.avatar_url;
+
+          messagesList.push(msg);
+
+          localStorage.setItem(
+            "chatMessages",
+            JSON.stringify(messagesList.slice(-100))
+          );
+
+          await appendMessage(msg);
+
+          if (
+            Array.isArray(msg.mentions) &&
+            msg.mentions.includes(window.currentUser?.id)
+          ) {
+            showToast("Info", `${msg.full_name} call you!`, "default");
+          }
+        }
+      )
+
+      .on(
+        "postgres_changes",
+
+        {
+          event: "UPDATE",
+
+          schema: "public",
+
+          table: "messages",
+        },
+
+        async (payload) => {
+          const updatedMsg = payload.new;
+
+          const index = messagesList.findIndex(
+            (msg) => msg.id === updatedMsg.id
+          );
+
+          if (index !== -1) {
+            const profile = await fetchUserProfile(updatedMsg.user_id);
+
+            updatedMsg.full_name = profile.full_name;
+
+            updatedMsg.avatar_url = profile.avatar_url;
+
+            messagesList[index] = { ...messagesList[index], ...updatedMsg };
+
+            localStorage.setItem(
+              "chatMessages",
+              JSON.stringify(messagesList.slice(-100))
+            );
+
+            await appendMessage(messagesList[index], true);
+          }
+        }
+      )
+
+      .on(
+        "postgres_changes",
+
+        {
+          event: "DELETE",
+
+          schema: "public",
+
+          table: "messages",
+        },
+
+        async (payload) => {
+          try {
+            const deleted = payload.old;
+
+            if (!deleted || !deleted.id) return;
+
+            const idx = messagesList.findIndex((m) => m.id === deleted.id);
+
+            if (idx !== -1) {
+              messagesList.splice(idx, 1);
+
+              localStorage.setItem(
+                "chatMessages",
+                JSON.stringify(messagesList.slice(-100))
+              );
+            }
+
+            const el = document.querySelector(
+              `[data-message-id="${deleted.id}"]`
+            );
+
+            if (el) {
+              // optional fade-out for smoothness
+
+              el.style.transition = "opacity 180ms ease, transform 180ms ease";
+
+              el.style.opacity = "0";
+
+              el.style.transform = "scale(0.98)";
+
+              setTimeout(() => el.remove(), 200);
+            }
+          } catch (err) {
+            console.error(
+              "Error handling deleted message (messagesChannel):",
+              err
+            );
+          }
+        }
+      )
+
+      .subscribe();
+
+    supabaseChannels.push(messagesChannel);
+
+    const presenceChannel = supabase
+
+      .channel("presence", {
+        config: {
+          presence: {
+            key: window.currentUser?.id,
+          },
+        },
+      })
+
+      .on("presence", { event: "sync" }, async () => {
+        const state = presenceChannel.presenceState();
+
+        const users = Object.values(state).flat();
+
+        const filteredUsers = users.filter((p) => {
+          if (!window.currentUser || !window.currentUser.id) {
+            console.warn(
+              "window.currentUser atau window.currentUser.id tidak tersedia"
+            );
+
+            return true;
+          }
+
+          return p.user_id !== window.currentUser.id;
+        });
+
+        const typingUsers = filteredUsers.filter((user) => user.isTyping);
+
+        const typingIndicator = document.getElementById("typingIndicator");
+
+        if (typingIndicator) {
+          if (typingUsers.length > 0) {
+            typingIndicator.classList.remove("hidden");
+
+            typingIndicator.querySelector(
+              "span"
+            ).textContent = `${typingUsers[0].full_name} sedang mengetik...`;
+          } else {
+            typingIndicator.classList.add("hidden");
+          }
+        }
+
+        onlineUsers = filteredUsers.map((user) => ({
+          user_id: user.user_id,
+
+          full_name: user.full_name,
+
+          avatar_url: user.avatar_url,
+
+          isTyping: user.isTyping,
+        }));
+
+        updateOnlineUsers(onlineUsers);
+
+        const participantCount = document.querySelector(
+          "#pageCommunications .text-xs.text-slate-400 span"
+        );
+
+        if (participantCount) {
+          const totalUsers = users.length;
+
+          participantCount.textContent = `${totalUsers} active participants`;
+        }
+      })
+
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          if (
+            !window.currentUser ||
+            !window.currentUser.id ||
+            !window.currentUser.profile
+          ) {
+            console.warn(
+              "window.currentUser tidak lengkap:",
+              window.currentUser
+            );
+
+            return;
+          }
+
+          try {
+            await presenceChannel.track({
+              user_id: window.currentUser.id,
+
+              full_name: window.currentUser.profile.full_name,
+
+              avatar_url: window.currentUser.profile.avatar_url,
+
+              isTyping: false,
+
+              online_at: new Date().toISOString(),
+            });
+
+            // update current presence state immediately after tracking
+
+            try {
+              const st = presenceChannel.presenceState();
+
+              const usersNow = Object.values(st)
+                .flat()
+                .map((p) => ({
+                  user_id: p.user_id,
+
+                  full_name: p.full_name,
+
+                  avatar_url: p.avatar_url,
+
+                  isTyping: p.isTyping,
+                }));
+
+              updateOnlineUsers(
+                usersNow.filter((u) => u.user_id !== window.currentUser.id)
+              );
+            } catch (e) {
+              console.debug("Could not read presenceState immediately", e);
+            }
+          } catch (err) {
+            console.error("Gagal track pengguna:", err);
+          }
+
+          // periodic fallback: poll presenceState every 8s to keep online list fresh
+
+          try {
+            if (presenceInterval) clearInterval(presenceInterval);
+          } catch (e) {}
+
+          presenceInterval = setInterval(() => {
+            try {
+              const st = presenceChannel.presenceState();
+
+              const usersNow = Object.values(st)
+                .flat()
+                .map((p) => ({
+                  user_id: p.user_id,
+
+                  full_name: p.full_name,
+
+                  avatar_url: p.avatar_url,
+
+                  isTyping: p.isTyping,
+                }));
+
+              updateOnlineUsers(
+                usersNow.filter((u) => u.user_id !== window.currentUser.id)
+              );
+            } catch (e) {
+              // ignore polling errors
+            }
+          }, 8000);
+        } else if (status === "CLOSED" || status === "TIMED_OUT") {
+          console.warn("Subscription presence gagal, mencoba ulang...");
+
+          setTimeout(() => {
+            try {
+              presenceChannel.subscribe();
+            } catch (e) {
+              console.error("presence resubscribe error", e);
+            }
+          }, 2000);
+        }
+      });
+
+    // ensure untrack on unload
+
+    window.addEventListener("beforeunload", () => {
+      try {
+        presenceChannel.untrack();
+      } catch (e) {
+        /* ignore */
+      }
+    });
+
+    supabaseChannels.push(presenceChannel);
+
+    updateConnectionLatency();
+
+    latencyInterval = setInterval(updateConnectionLatency, 10000);
+
+    bindEventListeners();
+  } catch (err) {
+    console.error("Inisialisasi chat gagal:", err);
+
+    showToast(
+      "Error",
+      "Failed chat initialization: " + err.message,
+      "destructive"
+    );
+
+    disableChat();
+
+    isChatInitialized = false;
+  }
+}
+
+// Fungsi nonaktifkan chat
+
+function disableChat() {
+  const chatInput = document.getElementById("chatInput");
+
+  const sendMessageBtn = document.getElementById("sendMessageBtn");
+
+  const chatMessages = document.getElementById("chatMessages");
+
+  if (chatInput) {
+    chatInput.disabled = true;
+
+    chatInput.placeholder = "Login to chat...";
+  }
+
+  if (sendMessageBtn) {
+    sendMessageBtn.disabled = true;
+
+    sendMessageBtn.classList.add("opacity-50", "cursor-not-allowed");
+  }
+
+  if (chatMessages) {
+    chatMessages.innerHTML = `
+
+            <div class="text-center text-slate-400 py-4">Silakan login untuk mengakses chat</div>
+
+        `;
+  }
+}
+
+// Event listener untuk navigasi halaman
+
+function handlePageNavigation() {
+  const navCommunications = document.getElementById("navCommunications");
+
+  if (navCommunications) {
+    const navigateHandler = () => {
+      console.log(
+        "Navigasi ke halaman Communications, menginisialisasi chat..."
+      );
+
+      cleanupChat();
+
+      setTimeout(initializeChat, 100);
+    };
+
+    navCommunications.addEventListener("click", navigateHandler, {
+      once: true,
+    });
+
+    eventListeners.push({
+      element: navCommunications,
+      event: "click",
+      handler: navigateHandler,
+    });
+  }
+}
+
+// Event listener DOM loaded
+
+document.addEventListener("DOMContentLoaded", () => {
+  console.log("DOM loaded, memulai inisialisasi...");
+
+  lucide.createIcons();
+
+  handlePageNavigation();
+
+  // Tambahkan penundaan kecil untuk memastikan DOM benar-benar siap
+
+  setTimeout(() => {
+    initializeChat().catch((err) => {
+      console.error("Gagal inisialisasi chat di DOMContentLoaded:", err);
+
+      showToast(
+        "Error",
+        "Failed to load chat, please try again",
+        "destructive"
+      );
+    });
+  }, 100);
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// kedua
+
+
+
+let messagesList = [];
+      let adminMessagesList = [];
+      let isChatInitialized = false;
+      let supabaseChannels = [];
+      let eventListeners = [];
+      let onlineUsers = [];
+      let latencyInterval;
+      let presenceInterval = null;
+      let lastChatTime = {};
+      let lastMediaTime = {};
+      let directMessages = {};
+      let hasDirectMessagesTable = false;
+  let hasDirectMessagesIsRead = false;
+      let dmPollInterval = null;
+      // prevent multiple realtime subscriptions
+      let dmRealtimeInitialized = false;
+      // simple send locks to avoid duplicate sends per conversation
+      const dmSendLocks = {};
+    // column mapping for direct_messages table (some DBs use recipient_id)
+    let dmSenderCol = 'sender_id';
+    let dmReceiverCol = 'receiver_id';
+      let hasFollowsTable = false;
+       // =============================================
+// == KODE BARU: WEBTRC P2P VOICE CALL
+// =============================================
+
+let peerConnection = null;
+let localStream = null;
+let remoteStream = null;
+let callChannel = null;
+let callTargetUserId = null;
+let callRoomId = null;
+let turnServers = null; // Cache untuk kredensial TURN
+// Ringtone audio (WebAudio) state
+let ringtoneCtx = null;
+let ringtoneOsc = null;
+let ringtoneGain = null;
+let ringtoneTimer = null;
+
+function playRingtone(type = 'incoming') {
+  try {
+    stopAllRingtones();
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    ringtoneCtx = new AudioCtx();
+    ringtoneOsc = ringtoneCtx.createOscillator();
+    ringtoneGain = ringtoneCtx.createGain();
+    ringtoneOsc.type = 'sine';
+    ringtoneOsc.frequency.value = type === 'incoming' ? 880 : 660;
+    ringtoneGain.gain.value = 0.0001;
+    ringtoneOsc.connect(ringtoneGain);
+    ringtoneGain.connect(ringtoneCtx.destination);
+    ringtoneOsc.start();
+
+    // simple pulsing pattern
+    let on = true;
+    ringtoneTimer = setInterval(() => {
+      try {
+        ringtoneGain.gain.cancelScheduledValues(ringtoneCtx.currentTime);
+        ringtoneGain.gain.setValueAtTime(on ? 0.18 : 0.0001, ringtoneCtx.currentTime);
+        on = !on;
+      } catch (e) {
+        // ignore
+      }
+    }, 600);
+  } catch (e) {
+    console.warn('playRingtone error', e);
+  }
+}
+
+// Helper: slugify display name untuk dipakai di room id signaling
+function slugifyName(name) {
+  if (!name) return '';
+  return String(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+}
+
+// Global handler: click on DM images to open lightbox
+document.addEventListener('click', (e) => {
+  const img = e.target.closest && e.target.closest('.dm-image-wrap img');
+  if (!img) return;
+  const src = img.getAttribute('data-src') || img.src;
+  if (!src) return;
+  // create simple lightbox
+  const lb = document.createElement('div');
+  lb.style.position = 'fixed'; lb.style.inset = '0'; lb.style.display = 'flex'; lb.style.alignItems = 'center'; lb.style.justifyContent = 'center'; lb.style.background = 'rgba(0,0,0,0.85)'; lb.style.zIndex = 99999;
+  lb.innerHTML = `<img src="${src}" style="max-width:90%; max-height:90%; border-radius:8px; box-shadow:0 10px 40px rgba(0,0,0,0.6)"/>`;
+  lb.addEventListener('click', () => lb.remove());
+  document.body.appendChild(lb);
+});
+
+// DM audio play handler (delegated) with toggle play/pause and single global player
+let _dmAudioPlayer = null;
+let _dmPlayingButton = null;
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest && e.target.closest('.dm-audio-play');
+  if (!btn) return;
+  const src = btn.getAttribute('data-src');
+  if (!src) return;
+  try {
+    const icon = btn.querySelector('i');
+
+    // If clicking the same button that's currently playing -> toggle pause/play
+    if (_dmAudioPlayer && _dmPlayingButton === btn) {
+      if (_dmAudioPlayer.paused) {
+        _dmAudioPlayer.play().catch(err => console.warn('Audio resume failed:', err));
+        if (icon) { icon.setAttribute('data-lucide', 'pause'); }
+      } else {
+        _dmAudioPlayer.pause();
+        if (icon) { icon.setAttribute('data-lucide', 'play'); }
+      }
+      try { if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons(); } catch(e){}
+      return;
+    }
+
+    // Stop previous player and restore its icon
+    if (_dmAudioPlayer) {
+      try { _dmAudioPlayer.pause(); } catch (e) {}
+      if (_dmPlayingButton) {
+        const prevIcon = _dmPlayingButton.querySelector('i');
+        if (prevIcon) { prevIcon.setAttribute('data-lucide', 'play'); }
+        try { if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons(); } catch(e){}
+      }
+      _dmAudioPlayer = null;
+      _dmPlayingButton = null;
+    }
+
+    // Create new audio and play
+    _dmAudioPlayer = new Audio(src);
+    _dmPlayingButton = btn;
+    _dmAudioPlayer.play().catch(err => console.warn('Audio play failed:', err));
+    if (icon) { icon.setAttribute('data-lucide', 'pause'); try { if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons(); } catch(e){} }
+
+    _dmAudioPlayer.onended = () => {
+      if (icon) { icon.setAttribute('data-lucide', 'play'); try { if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons(); } catch(e){} }
+      _dmAudioPlayer = null;
+      _dmPlayingButton = null;
+    };
+  } catch (err) {
+    console.error('Failed to play DM audio:', err);
+  }
+});
+
+function stopAllRingtones() {
+  try {
+    if (ringtoneTimer) { clearInterval(ringtoneTimer); ringtoneTimer = null; }
+    if (ringtoneOsc) { try { ringtoneOsc.stop(); } catch (e) {} ringtoneOsc.disconnect(); ringtoneOsc = null; }
+    if (ringtoneGain) { try { ringtoneGain.disconnect(); } catch (e) {} ringtoneGain = null; }
+    if (ringtoneCtx) { try { ringtoneCtx.close(); } catch (e) {} ringtoneCtx = null; }
+  } catch (e) {
+    console.warn('stopAllRingtones error', e);
+  }
+}
+
+// [BARU] Nada disconnect/call-end (short beep pattern seperti WhatsApp)
+function playDisconnectTone() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.type = 'sine';
+    osc.frequency.value = 800; // Frekuensi medium
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    // Pola beep: 200ms beep, 100ms diam, 200ms beep
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime + 0.2);
+    gain.gain.setValueAtTime(0, ctx.currentTime + 0.2);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime + 0.3);
+    gain.gain.setValueAtTime(0, ctx.currentTime + 0.5);
+    
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.5);
+    
+    ctx.close();
+  } catch (e) {
+    console.warn('playDisconnectTone error', e);
+  }
+}
+
+/**
+ * [BARU] 1. Ambil Kredensial STUN/TURN
+ * Mengambil kredensial dari server Node.js kita, yang bertindak sebagai proxy
+ * ke Metered.ca (atau fallback ke STUN Google jika gagal).
+ */
+async function getTurnServers() {
+  // Jika sudah ada di cache, langsung kembalikan
+  if (turnServers) return turnServers;
+  
+  try {
+    // PENTING: Pastikan server Node.js Anda berjalan di port 5500
+    // Jika Anda menggunakan hosting, ganti 'http://localhost:5500' dengan URL server Anda
+    const response = await fetch('http://localhost:5500/get-turn-credentials'); 
+    
+    if (!response.ok) {
+        throw new Error('Gagal mengambil kredensial dari server proxy');
+    }
+    
+    const iceServers = await response.json();
+    
+    // Cek apakah server kita mengembalikan fallback (Google)
+    if (iceServers.length > 0 && iceServers[0].urls.includes('google')) {
+       console.warn('Menggunakan STUN publik (fallback). Pastikan server Node.js Anda berjalan dan .env sudah diatur.');
+    } else {
+       console.log('Sukses mengambil kredensial STUN/TURN dari Metered.ca.');
+    }
+    
+    turnServers = iceServers; // Simpan ke cache
+    return turnServers;
+
+  } catch (error) {
+    console.error('Error mengambil TURN credentials:', error.message);
+    showToast('Warning', 'Gagal mengambil server TURN, panggilan mungkin gagal.', 'warning');
+    // Fallback terakhir jika server Node.js kita mati
+    turnServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+    return turnServers;
+  }
+}
+
+/**
+ * [BARU] 2. Buat UI Modal Call
+ * Menampilkan modal panggilan dengan status: outgoing, incoming, atau active.
+ */
+function createCallUI(state, userName, avatarUrl) {
+  const container = document.getElementById('callModalContainer');
+  let actionsHtml = '';
+
+  // Tentukan tombol berdasarkan status panggilan
+  if (state === 'outgoing') {
+    actionsHtml = `
+      <button id="hangUpBtn" class="call-btn call-btn-decline" data-tooltip="Hang Up">
+        <i data-lucide="phone-off"></i>
+      </button>
+    `;
+  } else if (state === 'incoming') {
+    actionsHtml = `
+      <button id="acceptCallBtn" class="call-btn call-btn-accept" data-tooltip="Accept">
+        <i data-lucide="phone"></i>
+      </button>
+      <button id="declineCallBtn" class="call-btn call-btn-decline" data-tooltip="Decline">
+        <i data-lucide="phone-off"></i>
+      </button>
+    `;
+  } else if (state === 'active') {
+    actionsHtml = `
+      <button id="muteBtn" class="call-btn call-btn-mute" data-tooltip="Mute" title="Toggle Microphone">
+        <i data-lucide="mic"></i>
+      </button>
+      <button id="volumeBtn" class="call-btn call-btn-volume" data-tooltip="Volume" title="Toggle Speaker Volume">
+        <i data-lucide="volume-2"></i>
+      </button>
+      <button id="hangUpBtn" class="call-btn call-btn-decline" data-tooltip="Hang Up" title="End Call">
+        <i data-lucide="phone-off"></i>
+      </button>
+    `;
+  }
+
+  // unified follow modal moved to top-level (see above)
+
+  const callStatus = 
+    state === 'outgoing' ? 'Calling...' :
+    state === 'incoming' ? 'Incoming Call...' :
+    'On Call';
+    
+  // Logika avatar default jika URL tidak ada atau error
+  const avatarImg = (avatarUrl && avatarUrl !== '/default-avatar.png')
+    ? `<img src="${avatarUrl}" alt="${userName}" onerror="this.onerror=null;this.src='/default-avatar.png'">`
+    : `<div class="w-full h-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-white text-4xl font-bold">
+         ${(userName || 'A')[0].toUpperCase()}
+       </div>`;
+
+  // Wave animation untuk visual audio (tampil saat incoming/active)
+  const waveHtml = (state === 'incoming' || state === 'active') ? `
+    <div class="call-wave">
+      <div class="call-wave-bar"></div>
+      <div class="call-wave-bar"></div>
+      <div class="call-wave-bar"></div>
+      <div class="call-wave-bar"></div>
+      <div class="call-wave-bar"></div>
+    </div>
+  ` : '';
+
+  // Render HTML modal
+  container.innerHTML = `
+    <div class="call-modal">
+      <div class="call-avatar">
+        ${avatarImg}
+      </div>
+      <div class="call-name">${sanitizeHTML(userName) || 'Unknown User'}</div>
+      ${waveHtml}
+      <div class="call-status">${callStatus}</div>
+      <div class="call-actions">
+        ${actionsHtml}
+      </div>
+    </div>
+  `;
+  
+  lucide.createIcons(); // Render ikon
+  // Pastikan modal benar-benar terlihat: beberapa browser/HTML memiliki inline style display:none
+  try {
+    container.style.display = 'flex';
+    container.style.pointerEvents = 'auto';
+    container.classList.add('show'); // Tampilkan modal dengan animasi
+  } catch (e) {
+    console.warn('Could not show call modal container:', e);
+  }
+  // Tambahkan event listener untuk tombol-tombol baru (safe attach - cek eksistensi elemen)
+  if (state === 'outgoing') {
+    const hangEl = document.getElementById('hangUpBtn');
+    if (hangEl) hangEl.addEventListener('click', hangUp); else console.warn('hangUpBtn not found (outgoing)');
+  } else if (state === 'incoming') {
+    const acceptEl = document.getElementById('acceptCallBtn');
+    const declineEl = document.getElementById('declineCallBtn');
+    if (acceptEl) acceptEl.addEventListener('click', answerCall); else console.warn('acceptCallBtn not found');
+    if (declineEl) declineEl.addEventListener('click', hangUp); else console.warn('declineCallBtn not found');
+  } else if (state === 'active') {
+    const hangEl = document.getElementById('hangUpBtn');
+    const muteEl = document.getElementById('muteBtn');
+    const volEl = document.getElementById('volumeBtn');
+    if (hangEl) hangEl.addEventListener('click', hangUp); else console.warn('hangUpBtn not found (active)');
+    if (muteEl) muteEl.addEventListener('click', toggleMute); else console.warn('muteBtn not found');
+    if (volEl) volEl.addEventListener('click', toggleVolume); else console.warn('volumeBtn not found');
+  }
+}
+
+// Utility: safely replace/insert button icon and render via lucide
+function updateButtonIcon(button, iconName) {
+  if (!button) return;
+  try {
+    // Find existing icon element (i tag or svg or element with data-lucide)
+    const existing = button.querySelector('i, svg, [data-lucide]');
+    const i = document.createElement('i');
+    i.setAttribute('data-lucide', iconName);
+    // Preserve basic aria/tooltip if exists
+    if (existing) {
+      existing.replaceWith(i);
+    } else {
+      // insert as first child
+      button.insertBefore(i, button.firstChild);
+    }
+    // Re-render lucide icons (safe to call repeatedly)
+    if (window.lucide && typeof lucide.createIcons === 'function') {
+      lucide.createIcons();
+    }
+  } catch (e) {
+    console.warn('updateButtonIcon failed', e);
+  }
+}
+
+/**
+ * [BARU] 3. Fungsi Utama: Memulai Panggilan (Caller)
+ */
+async function startCall(targetUserId, targetUserName, targetAvatarUrl) {
+  if (!window.currentUser?.id) {
+    showToast('Error', 'Please login to start a call', 'error');
+    return;
+  }
+  if (peerConnection) {
+    showToast('Info', 'You are already in a call', 'info');
+    return;
+  }
+
+  console.log(`Starting call to ${targetUserId}...`);
+  callTargetUserId = targetUserId;
+  // Buat ID room yang unik untuk panggilan ini — gunakan nama user saja (tidak menampilkan id raw)
+  const callerName = window.currentUser?.full_name || window.currentUser?.username || null;
+  const calleeName = targetUserName || null;
+  const callerSlug = slugifyName(callerName) || `anon${Math.random().toString(36).slice(2,8)}`;
+  const calleeSlug = slugifyName(calleeName) || `anon${Math.random().toString(36).slice(2,8)}`;
+  // tambahkan timestamp supaya unik, tanpa menyertakan ID user yang sensitif
+  callRoomId = `call_${callerSlug}_${calleeSlug}_${Date.now()}`;
+
+  // Jika nama/avatar tidak diberikan (mis. dipanggil hanya dengan ID), ambil dari DB
+  try {
+    if (!targetUserName || !targetAvatarUrl) {
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('full_name, avatar_url')
+        .eq('id', targetUserId)
+        .single();
+      if (!error && profile) {
+        targetUserName = targetUserName || profile.full_name || 'Anonymous';
+        targetAvatarUrl = targetAvatarUrl || (profile.avatar_url ? await getAvatarUrl(profile.avatar_url) : '/default-avatar.png');
+      }
+    }
+  } catch (e) {
+    console.warn('Could not fetch profile for call UI:', e);
+  }
+
+  // Tampilkan UI "Calling..."
+  createCallUI('outgoing', targetUserName, targetAvatarUrl);
+  // Putar nada dering outgoing sampai panggilan terhubung atau dibatalkan
+  try { playRingtone('outgoing'); } catch (e) { console.warn('Could not play outgoing ringtone', e); }
+
+  try {
+    // 1. Ambil izin & stream audio lokal
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+
+    // 2. Kirim "dering" ke target user melalui DM
+    // Ini adalah pesan sinyal rahasia kita.
+    await sendDirectMessage(targetUserId, `__VOICE_CALL_OFFER__:${callRoomId}`);
+    console.log('Call offer DM sent.');
+
+    // 3. Mulai join ke channel signaling (sebagai Caller)
+    await joinSignalingChannel(callRoomId, true); // true = isCaller
+
+  } catch (err) {
+    console.error('Error starting call:', err);
+    if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        showToast('Error', 'Microphone not found.', 'destructive');
+    } else if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        showToast('Error', 'Microphone permission denied.', 'destructive');
+    } else {
+        showToast('Error', 'Failed to start call.', 'error');
+    }
+    hangUp(); // Bersihkan jika gagal
+  }
+}
+
+/**
+ * [BARU] 4. Fungsi Utama: Menerima Panggilan (Callee)
+ * Fungsi ini dipanggil oleh handler DM realtime saat pesan `__VOICE_CALL_OFFER__` diterima.
+ */
+async function receiveCall(callerId, receivedRoomId) {
+  // Jika sudah ada panggilan, kirim sinyal 'busy' (opsional, untuk saat ini abaikan)
+  if (peerConnection) {
+    console.warn('Already in a call, ignoring new call from ' + callerId);
+    // TODO: Kirim sinyal 'busy' kembali ke callerId
+    return;
+  }
+
+  console.log(`Incoming call from ${callerId}...`);
+  callRoomId = receivedRoomId;
+  callTargetUserId = callerId;
+  
+  // Ambil profil si penelepon untuk ditampilkan di UI
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('full_name, avatar_url')
+    .eq('id', callerId)
+    .single();
+    
+  if (error) {
+    console.error('Failed to get caller profile', error);
+    hangUp(); // Gagal, tutup
+    return;
+  }
+  
+  // Ambil URL avatar yang aman
+  const avatarUrl = profile.avatar_url ? await getAvatarUrl(profile.avatar_url) : null;
+  
+  // Tampilkan UI "Incoming Call..."
+  createCallUI('incoming', profile.full_name, avatarUrl);
+  // Putar nada dering incoming sampai dijawab atau dibatalkan
+  try { playRingtone('incoming'); } catch (e) { console.warn('Could not play incoming ringtone', e); }
+}
+
+// [MODIFIKASI] 5. Fungsi Utama: Menjawab Panggilan (Callee)
+async function answerCall() {
+  console.log('Answering call...');
+  if (!callRoomId || !callTargetUserId) {
+    console.error('Call details not found, cannot answer.');
+    return;
+  }
+  
+  // Hentikan nada dering masuk
+  stopAllRingtones(); 
+
+  try {
+    // 1. Ambil media (audio) - dengan error handling yang lebih baik
+    console.log('Requesting audio permission...');
+    localStream = await navigator.mediaDevices.getUserMedia({ 
+      audio: { 
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true 
+      }, 
+      video: false 
+    });
+    console.log('Audio stream obtained, tracks:', localStream.getTracks().length);
+    
+    // 2. Mulai join ke channel signaling (sebagai Callee)
+    await joinSignalingChannel(callRoomId, false); // false = isCaller
+    
+    // 3. [BARU] Tunggu sebentar untuk memastikan channel sudah subscribe, kemudian kirim "im-ready"
+    // Ini penting agar sender/receiver siap sebelum pesan dikirim
+    setTimeout(() => {
+      if (callChannel) {
+        console.log('Sending "im-ready" signal to caller...');
+        callChannel.send({
+            type: 'broadcast',
+            event: 'im-ready',
+            payload: {},
+        });
+        console.log('"im-ready" signal sent');
+      } else {
+        console.error('callChannel not available when trying to send im-ready');
+      }
+    }, 500); // Tunggu 500ms untuk memastikan channel ready
+    
+  } catch (err) {
+    console.error('Error answering call:', err);
+    showToast('Error', 'Failed to answer call. Check permissions.', 'error');
+    hangUp(); // Bersihkan jika gagal
+  }
+}
+
+
+
+
+
+
+
+
+
+
+// [MODIFIKASI] 6. Fungsi Inti WebRTC: Join Channel Signaling
+async function joinSignalingChannel(roomId, isCaller) {
+  if (callChannel) {
+    callChannel.unsubscribe(); // Bersihkan channel lama jika ada
+  }
+
+  // 1. Buat Peer Connection dengan server STUN/TURN
+  console.log('Creating PeerConnection...');
+  const iceServers = await getTurnServers();
+  peerConnection = new RTCPeerConnection({ iceServers });
+
+  // Monitor connection state untuk debugging
+  peerConnection.onconnectionstatechange = () => {
+    console.log('PeerConnection connectionState changed:', peerConnection.connectionState);
+    if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'disconnected') {
+      showToast('Warning', 'Connection unstable. Trying to reconnect...', 'warning');
+    }
+  };
+
+  peerConnection.oniceconnectionstatechange = () => {
+    console.log('PeerConnection iceConnectionState changed:', peerConnection.iceConnectionState);
+  };
+
+  peerConnection.onsignalingstatechange = () => {
+    console.log('PeerConnection signalingState changed:', peerConnection.signalingState);
+  };
+
+  // 2. Tambahkan track audio lokal ke koneksi
+  if (localStream) {
+    localStream.getTracks().forEach(track => {
+      console.log('Adding local track:', track.kind, 'enabled:', track.enabled);
+      peerConnection.addTrack(track, localStream);
+    });
+  }
+
+  // 3. Handle saat remote audio track diterima
+  peerConnection.ontrack = (event) => {
+    console.log('Got remote track, call connected!', event);
+    remoteStream = event.streams[0];
+    
+    // Dapatkan elemen audio dan pastikan autoplay sudah aktif
+    const remoteAudio = document.getElementById('remoteAudio');
+    if (remoteAudio) {
+      remoteAudio.srcObject = remoteStream;
+      remoteAudio.volume = 1; // Full volume untuk remote audio
+      
+      // Force play dengan error handling
+      remoteAudio.play().catch(err => {
+        console.warn('Could not autoplay remote audio, might need user gesture:', err);
+        // Coba play lagi dengan timeout kecil
+        setTimeout(() => {
+          remoteAudio.play().catch(e => console.warn('Retry play failed:', e));
+        }, 100);
+      });
+      
+      console.log('Remote audio stream attached and playing');
+      // Start wave visualizer explicitly when remote stream arrives
+      try {
+        if (window.waveVisualizer && typeof window.waveVisualizer.startFromMediaStream === 'function') {
+          window.waveVisualizer.startFromMediaStream(remoteStream);
+        }
+      } catch (wvErr) {
+        console.warn('Failed to start wave visualizer:', wvErr);
+      }
+    } else {
+      console.warn('remoteAudio element not found!');
+    }
+    
+    // [MODIFIKASI NADA DERING] Hentikan semua nada dering saat koneksi berhasil
+    stopAllRingtones();
+    
+    // Update UI ke 'active' (On Call)
+    const modal = document.getElementById('callModalContainer');
+    const targetName = modal.querySelector('.call-name').textContent || 'User';
+    const targetAvatar = modal.querySelector('.call-avatar img')?.src || null;
+    createCallUI('active', targetName, targetAvatar);
+  };
+
+  // 4. Setup Channel Supabase untuk signaling
+  callChannel = supabase.channel(roomId, {
+    config: {
+      presence: { key: window.currentUser.id },
+      broadcast: { self: false }, 
+    },
+  });
+
+  // 5. Kirim ICE candidates ke peer
+  peerConnection.onicecandidate = (event) => {
+    if (event.candidate) {
+      console.log('Sending ICE candidate:', event.candidate.candidate.substring(0, 50) + '...');
+      callChannel.send({
+        type: 'broadcast',
+        event: 'ice-candidate',
+        payload: { candidate: event.candidate.toJSON() }, // Convert to JSON for Supabase
+      });
+    }
+  };
+
+  peerConnection.onicecandidateerror = (event) => {
+    console.warn('ICE candidate error:', event.errorCode, event.errorText);
+  };
+
+  // 6. Dengarkan event dari channel
+  callChannel
+    // [BARU] Penelepon (Caller) menunggu sinyal 'im-ready' dari Penerima (Callee)
+    .on('broadcast', { event: 'im-ready' }, async ({ payload }) => {
+        if (isCaller) { // Hanya Penelepon yang bereaksi
+            console.log('[CALLER] Callee is ready. Creating and sending offer...');
+            console.log('[CALLER] Peer connection state:', peerConnection.connectionState);
+            console.log('[CALLER] Signaling state:', peerConnection.signalingState);
+            
+            try {
+              const offer = await peerConnection.createOffer();
+              console.log('[CALLER] Offer created:', offer);
+              
+              await peerConnection.setLocalDescription(offer);
+              console.log('[CALLER] Local description set with offer');
+              
+              callChannel.send({
+                  type: 'broadcast',
+                  event: 'offer',
+                  payload: { offer },
+              });
+              console.log('[CALLER] Offer sent to callee');
+            } catch (err) {
+              console.error('[CALLER] Error creating/sending offer:', err);
+              showToast('Error', 'Failed to create call offer', 'error');
+            }
+        }
+    })
+    .on('broadcast', { event: 'offer' }, async ({ payload }) => {
+      // Hanya Callee (bukan caller) yang memproses 'offer'
+      if (!isCaller) {
+        console.log('[CALLEE] Received offer from caller:', payload.offer);
+        try {
+          console.log('[CALLEE] Setting remote description with offer...');
+          await peerConnection.setRemoteDescription(payload.offer);
+          
+          console.log('[CALLEE] Creating answer...');
+          const answer = await peerConnection.createAnswer();
+          console.log('[CALLEE] Setting local description with answer...');
+          await peerConnection.setLocalDescription(answer);
+          
+          console.log('[CALLEE] Sending answer back to caller...');
+          callChannel.send({
+            type: 'broadcast',
+            event: 'answer',
+            payload: { answer },
+          });
+        } catch (err) {
+          console.error('[CALLEE] Error processing offer:', err);
+          showToast('Error', 'Failed to process call offer', 'error');
+        }
+      }
+    })
+    .on('broadcast', { event: 'answer' }, async ({ payload }) => {
+      // Hanya Caller yang memproses 'answer'
+      if (isCaller) {
+        console.log('[CALLER] Received answer from callee:', payload.answer);
+        try {
+          console.log('[CALLER] Setting remote description with answer...');
+          await peerConnection.setRemoteDescription(payload.answer);
+          console.log('[CALLER] Successfully set remote description, waiting for connection...');
+        } catch (err) {
+          console.error('[CALLER] Error processing answer:', err);
+          showToast('Error', 'Failed to process call answer', 'error');
+        }
+      }
+    })
+    .on('broadcast', { event: 'ice-candidate' }, async ({ payload }) => {
+      console.log('Received ICE candidate');
+      try {
+        const candidate = new RTCIceCandidate(payload.candidate);
+        await peerConnection.addIceCandidate(candidate);
+        console.log('Added ICE candidate successfully');
+      } catch (err) {
+        console.warn('Error adding ICE candidate:', err);
+      }
+    })
+    .on('broadcast', { event: 'hang-up' }, () => {
+      showToast('Info', 'Call ended by user', 'info');
+      // [MODIFIKASI NADA DERING] Hentikan nada dering jika ditutup
+      stopAllRingtones(); 
+      hangUp();
+    })
+    .subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        console.log('Signaling channel subscribed');
+        
+        // [MODIFIKASI] Penelepon TIDAK lagi mengirim offer di sini.
+        // Dia akan menunggu sinyal 'im-ready'
+        
+        // if (isCaller) { ... BLOK INI DIHAPUS ... }
+      }
+    });
+  
+  supabaseChannels.push(callChannel); // Lacak channel ini agar bisa di-cleanup
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/**
+ * [BARU] 7. Fungsi Utility: Tutup Panggilan (Hang Up)
+ * Membersihkan semua koneksi dan stream.
+ */
+function hangUp() {
+  console.log('Hanging up call...');
+  // Stop any playing ringtones
+  try { stopAllRingtones(); } catch(e) { }
+  
+  // Play disconnect tone (seperti WhatsApp)
+  try { 
+    if (peerConnection && peerConnection.connectionState !== 'new') {
+      // Hanya play disconnect tone jika koneksi sudah dimulai
+      playDisconnectTone(); 
+    }
+  } catch(e) { }
+  
+  // Kirim sinyal hang-up ke user lain
+  if (callChannel) {
+    callChannel.send({
+      type: 'broadcast',
+      event: 'hang-up',
+      payload: {},
+    });
+    // Hapus channel dari Supabase
+    supabase.removeChannel(callChannel);
+    callChannel = null;
+  }
+  
+  // Tutup koneksi P2P
+  if (peerConnection) {
+    peerConnection.close();
+    peerConnection = null;
+  }
+  
+  // Matikan stream audio lokal (matikan mic)
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
+    localStream = null;
+  }
+  
+  // Hentikan stream audio remote
+  if (remoteStream) {
+    remoteStream.getTracks().forEach(track => track.stop());
+    const remoteAudio = document.getElementById('remoteAudio');
+    if (remoteAudio) {
+      remoteAudio.pause();
+      remoteAudio.srcObject = null;
+    }
+    remoteStream = null;
+  }
+  
+  // Stop wave visualizer
+  try {
+    if (window.waveVisualizer && typeof window.waveVisualizer.stopVisualizer === 'function') {
+      window.waveVisualizer.stopVisualizer();
+    }
+  } catch(e) { console.warn('Failed to stop wave visualizer:', e); }
+  
+  // Sembunyikan modal
+  const modal = document.getElementById('callModalContainer');
+  if (modal) {
+    modal.classList.remove('show');
+    // Set display none agar tidak tertimpa inline style sebelumnya
+    try { modal.style.pointerEvents = 'none'; modal.style.display = 'none'; } catch(e) {}
+    // Beri jeda agar animasi (jika ada) selesai sebelum menghapus HTML
+    setTimeout(() => {
+      try { modal.innerHTML = ''; } catch(e) {}
+    }, 300);
+  }
+  
+  // Reset variabel state
+  callTargetUserId = null;
+  callRoomId = null;
+}
+
+/**
+ * [BARU] 8. Fungsi Utility: Mute/Unmute
+ */
+async function toggleMute() {
+  const muteBtn = document.getElementById('muteBtn');
+  if (!muteBtn) {
+    console.warn('toggleMute: muteBtn not found');
+    return;
+  }
+
+  // If we don't have a local stream yet, try to request permission and attach
+  if (!localStream) {
+    try {
+      showToast('Info', 'Requesting microphone permission...', 'info');
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      // If peerConnection exists, add tracks
+      if (peerConnection) {
+        localStream.getTracks().forEach(track => {
+          try { peerConnection.addTrack(track, localStream); } catch (e) { console.warn('addTrack failed', e); }
+        });
+      }
+    } catch (err) {
+      console.error('toggleMute: failed to getUserMedia', err);
+      showToast('Error', 'Could not access microphone', 'error');
+      return;
+    }
+  }
+
+  const audioTrack = localStream.getAudioTracks()[0];
+  if (!audioTrack) {
+    console.warn('toggleMute: no audio track available');
+    showToast('Error', 'No audio track available', 'error');
+    return;
+  }
+
+  if (audioTrack.enabled) {
+    // Mute
+    audioTrack.enabled = false;
+    muteBtn.classList.add('muted');
+    updateButtonIcon(muteBtn, 'mic-off');
+    showToast('Info', 'Microphone Muted', 'info');
+  } else {
+    // Unmute
+    audioTrack.enabled = true;
+    muteBtn.classList.remove('muted');
+    updateButtonIcon(muteBtn, 'mic');
+    showToast('Info', 'Microphone On', 'info');
+  }
+}
+
+/**
+ * [BARU] 9. Fungsi Utility: Toggle Volume Speaker
+ * Mengatur volume speaker untuk remote audio (untuk hearing yg keluar dari device)
+ */
+function toggleVolume() {
+  const volumeBtn = document.getElementById('volumeBtn');
+  const remoteAudio = document.getElementById('remoteAudio');
+
+  if (!volumeBtn) {
+    console.warn('toggleVolume: volumeBtn not found');
+    return;
+  }
+
+  if (!remoteAudio) {
+    console.warn('toggleVolume: remoteAudio element not ready');
+    showToast('Info', 'Remote audio not available yet', 'info');
+    return;
+  }
+
+  // Use muted property + volume for clarity
+  if (remoteAudio.muted || remoteAudio.volume === 0) {
+    remoteAudio.muted = false;
+    remoteAudio.volume = 1.0;
+    volumeBtn.classList.remove('muted');
+    updateButtonIcon(volumeBtn, 'volume-2');
+    showToast('Info', 'Speaker On', 'info');
+  } else {
+    remoteAudio.muted = true;
+    remoteAudio.volume = 0;
+    volumeBtn.classList.add('muted');
+    updateButtonIcon(volumeBtn, 'volume-x');
+    showToast('Info', 'Speaker Muted', 'info');
+  }
+}
+
+// =============================================
+// == AKHIR DARI KODE BARU WEBTRC
+// =============================================
+
+      const CHAT_COOLDOWN = 60 * 1000; // 1 detik
+      const MEDIA_COOLDOWN = 60 * 30 * 1000; // 1 detik
+
+
+
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+      // Tambahkan ini di awal file Communications.js
+document.addEventListener('click', function(e) {
+  // Handle menu dots
+
+// run schema detection and init realtime + UI helpers
+checkDatabaseSchema().then(async () => {
+  try { initDirectMessageRealtime(); } catch(e) { console.warn('initDirectMessageRealtime failed:', e); }
+  try { createInboxShortcut(); } catch(e) { console.warn('createInboxShortcut failed:', e); }
+  try { startDirectMessagePoll(); } catch(e) { console.warn('startDirectMessagePoll failed:', e); }
+  try {
+    // initialise inbox badge count based on unread messages
+    const convs = await getConversations();
+    const totalUnread = (convs || []).reduce((s, c) => s + (c.unread || 0), 0);
+    if (totalUnread > 0) updateInboxBadge(totalUnread);
+  } catch (e) {
+    console.warn('Could not initialise inbox badge:', e);
+  }
+}).catch(e => console.warn('checkDatabaseSchema failed:', e));
+  const menuBtn = e.target.closest('.menu-btn');
+  const menuDropdown = menuBtn?.parentElement?.querySelector('.menu-dropdown');
+  
+  if (menuBtn && menuDropdown) {
+    e.stopPropagation();
+    // Tutup semua dropdown lain
+    document.querySelectorAll('.menu-dropdown:not(.hidden)').forEach(dropdown => {
+      if (dropdown !== menuDropdown) {
+        dropdown.classList.add('hidden');
+      }
+    });
+    menuDropdown.classList.toggle('hidden');
+  } else if (!e.target.closest('.menu-dropdown')) {
+    // Tutup semua dropdown jika klik di luar
+    document.querySelectorAll('.menu-dropdown').forEach(dropdown => {
+      dropdown.classList.add('hidden');
+    });
+  }
+  
+  // Handle profile clicks
+  const userElement = e.target.closest('[data-user-id]');
+  if (userElement) {
+    const userId = userElement.dataset.userId;
+    if (userId) {
+      e.preventDefault();
+      showUserProfilePopup(userId);
+    }
+  }
+});
+
+      // Check database schema support
+      async function checkDatabaseSchema() {
+        try {
+          const { data: dmData, error: dmError } = await supabase
+            .from('direct_messages')
+            .select('id')
+            .limit(1);
+          hasDirectMessagesTable = !dmError;
+
+          // detect is_read column support and which receiver column is used
+          if (hasDirectMessagesTable) {
+            try {
+              // try standard receiver_id + is_read
+              const { data: r, error: rErr } = await supabase
+                .from('direct_messages')
+                .select('receiver_id,is_read')
+                .limit(1);
+              if (!rErr) {
+                hasDirectMessagesIsRead = 'is_read' in (r && r[0] ? r[0] : {});
+                dmReceiverCol = 'receiver_id';
+                dmSenderCol = 'sender_id';
+              } else {
+                // fallback try recipient_id
+                const { data: r2, error: rErr2 } = await supabase
+                  .from('direct_messages')
+                  .select('recipient_id,is_read')
+                  .limit(1);
+                if (!rErr2) {
+                  hasDirectMessagesIsRead = 'is_read' in (r2 && r2[0] ? r2[0] : {});
+                  dmReceiverCol = 'recipient_id';
+                  dmSenderCol = 'sender_id';
+                } else {
+                  hasDirectMessagesIsRead = false;
+                }
+              }
+            } catch (e) {
+              hasDirectMessagesIsRead = false;
+            }
+          }
+
+          const { data: followData, error: followError } = await supabase
+            .from('follows')
+            .select('follower_id')
+            .limit(1);
+          hasFollowsTable = !followError;
+
+          console.log('Schema support:', { hasDirectMessagesTable, hasFollowsTable });
+        } catch (err) {
+          console.error('Error checking schema:', err);
+        }
+      }
+
+      // Direct Message Functions
+      async function sendDirectMessage(receiverId, content, imageUrl = null, audioUrl = null, duration = null) {
+            if (!content || (!content.trim() && !imageUrl && !audioUrl)) return;
+            // prevent duplicate sends for same receiver for short period
+            const lockKey = `${receiverId}:${content.slice(0,140)}`;
+            if (dmSendLocks[lockKey]) {
+              console.warn('Duplicate send prevented for', lockKey);
+              return;
+            }
+            dmSendLocks[lockKey] = true;
+            setTimeout(() => { delete dmSendLocks[lockKey]; }, 1500);
+        
+        try {
+          if (hasDirectMessagesTable) {
+            // build insert object using detected column names
+            const insertObj = {};
+            insertObj[dmSenderCol] = window.currentUser?.id;
+            insertObj[dmReceiverCol] = receiverId;
+            insertObj.content = content;
+            if (imageUrl) insertObj.image_url = imageUrl;
+            if (audioUrl) insertObj.audio_url = audioUrl;
+            if (duration) insertObj.duration = duration;
+
+            let data, error;
+            try {
+              const res = await supabase
+                .from('direct_messages')
+                .insert(insertObj)
+                .select()
+                .single();
+              data = res.data; error = res.error;
+            } catch (e) {
+              console.error('sendDirectMessage: insert threw', e);
+              throw e;
+            }
+            if (error) {
+              // log more details when available
+              try { console.error('sendDirectMessage: insert error details ->', JSON.stringify(error)); } catch(e){ console.error('sendDirectMessage: insert error ->', error); }
+              throw error;
+            }
+
+            console.debug('sendDirectMessage: insert returned ->', data);
+
+            // Add to local cache (dedupe by id)
+            if (!directMessages[receiverId]) directMessages[receiverId] = [];
+            if (!directMessages[receiverId].some(m => m.id === data.id)) {
+              directMessages[receiverId].push(data);
+            } else {
+              console.debug('Message already present in cache, skipping push for', data.id);
+            }
+
+            // ensure uniqueness
+            directMessages[receiverId] = Array.from(new Map((directMessages[receiverId] || []).map(m => [m.id, m])).values());
+
+            updateDirectMessageUI(receiverId);
+            // Update inbox UI so the conversation appears for the sender
+            try { await refreshConversationsUI(); } catch(e) { console.warn('Could not refresh conversations after DM insert:', e); }
+          } else {
+            // Fallback to localStorage
+            const message = {
+              id: `local-${Date.now()}`,
+              sender_id: window.currentUser?.id,
+              receiver_id: receiverId,
+              content: content,
+              image_url: imageUrl || null,
+              audio_url: audioUrl || null,
+              duration: duration || null,
+              created_at: new Date().toISOString()
+            };
+            
+            const localMessages = JSON.parse(localStorage.getItem('directMessages') || '{}');
+            if (!localMessages[receiverId]) localMessages[receiverId] = [];
+            localMessages[receiverId].push(message);
+            localStorage.setItem('directMessages', JSON.stringify(localMessages));
+            
+            if (!directMessages[receiverId]) directMessages[receiverId] = [];
+            directMessages[receiverId].push(message);
+            console.debug('sendDirectMessage: saved message locally and pushed to in-memory cache for', receiverId, message);
+            
+            updateDirectMessageUI(receiverId);
+            // Update inbox UI for local fallback as well
+            try { await refreshConversationsUI(); } catch(e) { console.warn('Could not refresh conversations after local DM:', e); }
+            showToast('Info', 'Message saved locally - server storage not available', 'info');
+          }
+        } catch (err) {
+          console.error('Error sending DM:', err);
+          showToast('Error', 'Failed to send message', 'error');
+        }
+      }
+
+     // Update follow button in UI
+      function updateFollowButton(userId, isFollowing) {
+        const btn = document.getElementById(`followBtn-${userId}`);
+        if (!btn) return; // Tombol tidak ditemukan
+
+        // 1. Cari DIV container di dalam tombol
+        const container = btn.querySelector('div.flex'); 
+        if (!container) {
+          console.error('Tombol follow tidak memiliki DIV container!', btn);
+          return; 
+        }
+
+        // 2. Ganti isi HTML container-nya
+        if (isFollowing) {
+          container.innerHTML = `
+            <i data-lucide="user-check" class="h-4 w-4"></i>
+            <span>Following</span>
+          `;
+        } else {
+          container.innerHTML = `
+            <i data-lucide="user-plus" class="h-4 w-4"></i>
+            <span>Follow User</span>
+          `;
+        }
+
+        // 3. Update Kelas (CSS) agar warnanya berubah
+        const baseClasses = "w-full py-3.5 px-4 rounded-xl font-semibold transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]";
+        
+        if (isFollowing) {
+          // Kelas untuk "Following" (abu-abu/slate)
+          btn.className = `${baseClasses} bg-gradient-to-r from-slate-700 to-slate-800 text-slate-200 border border-slate-600/50 shadow-lg`;
+        } else {
+          // Kelas untuk "Follow User" (biru/cyan)
+          btn.className = `${baseClasses} bg-gradient-to-r from-teal-500 to-cyan-600 text-white shadow-lg shadow-cyan-500/30 hover:shadow-cyan-500/50`;
+        }
+        
+        // 4. Render ulang ikon Lucide
+        lucide.createIcons();
+      }
+
+
+
+      // Fungsi BARU untuk update angka follower di UI
+      function updateFollowerCountUI(userId, change) { // change bisa +1 atau -1
+        try {
+          const countEl = document.getElementById(`profile-followers-count-${userId}`);
+          if (countEl) {
+            let currentCount = parseInt(countEl.textContent, 10);
+            if (isNaN(currentCount)) currentCount = 0;
+            
+            const newCount = Math.max(0, currentCount + change); // Pastikan tidak di bawah 0
+            countEl.textContent = newCount;
+          }
+        } catch(e) {
+          console.warn('Could not update follower count UI', e);
+        }
+      }
+
+      async function followUser(userId) {
+        try {
+          if (!window.currentUser?.id) {
+            showToast('Error', 'Please login to follow users', 'error');
+            return;
+          }
+
+          if (userId === window.currentUser.id) {
+            showToast('Error', 'You cannot follow yourself', 'error');
+            return;
+          }
+
+          // First update UI optimistically
+          updateFollowButton(userId, true);
+          updateFollowerCountUI(userId, 1); // <-- TAMBAHKAN INI (+1)
+
+          if (hasFollowsTable) {
+            const { error } = await supabase
+              .from('follows')
+              .insert({
+                follower_id: window.currentUser.id,
+                following_id: userId
+              });
+
+            if (error) {
+              console.error('Error following user:', error);
+              // Revert UI on error
+              updateFollowButton(userId, false);
+              updateFollowerCountUI(userId, -1); // <-- TAMBAHKAN INI (Batal, -1)
+              
+              if (error.code === '23505') { // Unique violation
+                showToast('Info', 'You are already following this user', 'info');
+              } else {
+                showToast('Error', 'Could not follow user: ' + error.message, 'error');
+              }
+              return;
+            }
+            
+            // Update followers_count in profiles table (ini tetap jalan)
+            try {
+              const { data: prof, error: profErr } = await supabase
+                .from('profiles')
+                .select('followers_count')
+                .eq('id', userId)
+                .single();
+              if (!profErr && prof) {
+                const newCount = (prof.followers_count || 0) + 1;
+                await supabase.from('profiles').update({ followers_count: newCount }).eq('id', userId);
+              }
+            } catch (e) {
+              console.warn('Could not update followers_count:', e);
+            }
+
+            showToast('Success', 'Successfully followed user', 'success');
+          } else {
+            try {
+              const localFollows = JSON.parse(localStorage.getItem('follows') || '[]');
+              
+              // Check if already following
+              if (localFollows.some(f => 
+                f.follower_id === window.currentUser.id && 
+                f.following_id === userId
+              )) {
+                showToast('Info', 'You are already following this user', 'info');
+                return;
+              }
+
+              localFollows.push({
+                follower_id: window.currentUser.id,
+                following_id: userId,
+                created_at: new Date().toISOString()
+              });
+              localStorage.setItem('follows', JSON.stringify(localFollows));
+              
+              showToast('Info', 'Follow saved locally - server storage not available', 'info');
+            } catch (localErr) {
+              console.error('Error saving follow locally:', localErr);
+              // Revert UI on error
+          updateFollowButton(userId, false);
+          updateFollowerCountUI(userId, -1); // <-- TAMBAHKAN INI (Batal, -1)
+          showToast('Error', 'Failed to follow user', 'error');
+        }
+      }
+        } catch (err) {
+          console.error('Error following user:', err);
+          // Revert UI on error
+          updateFollowButton(userId, false);
+          showToast('Error', 'Failed to follow user', 'error');
+        }
+      }
+
+
+      // FUNGSI BARU (FIXED): Mengambil daftar followers (orang yang follow user ini)
+      async function getFollowers(userId) {
+        if (!hasFollowsTable) return [];
+        try {
+          // 1. Ambil semua ID follower
+          const { data: follows, error: followsError } = await supabase
+            .from('follows')
+            .select('follower_id') // Hanya ambil ID-nya
+            .eq('following_id', userId);
+
+          if (followsError) throw followsError;
+          if (!follows || follows.length === 0) return [];
+
+          // 2. Ubah jadi array [id1, id2, id3]
+          const followerIds = follows.map(f => f.follower_id);
+
+          // 3. Ambil semua profil yang ID-nya ada di array itu
+          const { data: profiles, error: profileError } = await supabase
+            .from('profiles')
+            .select('id, full_name, avatar_url')
+            .in('id', followerIds); // Gunakan '.in()'
+
+          if (profileError) throw profileError;
+          return profiles; // Kembalikan daftar profil
+
+        } catch (err) {
+          console.error('Error fetching followers:', err);
+          return [];
+        }
+      }
+
+     // FUNGSI BARU (FIXED): Mengambil daftar following (orang yang di-follow user ini)
+      async function getFollowing(userId) {
+        if (!hasFollowsTable) return [];
+        try {
+          // 1. Ambil semua ID yang di-follow
+          const { data: follows, error: followsError } = await supabase
+            .from('follows')
+            .select('following_id') // Hanya ambil ID-nya
+            .eq('follower_id', userId);
+
+          if (followsError) throw followsError;
+          if (!follows || follows.length === 0) return [];
+
+          // 2. Ubah jadi array [id1, id2, id3]
+          const followingIds = follows.map(f => f.following_id);
+
+          // 3. Ambil semua profil yang ID-nya ada di array itu
+          const { data: profiles, error: profileError } = await supabase
+            .from('profiles')
+            .select('id, full_name, avatar_url')
+            .in('id', followingIds); // Gunakan '.in()'
+
+          if (profileError) throw profileError;
+          return profiles; // Kembalikan daftar profil
+
+        } catch (err) {
+          console.error('Error fetching following list:', err);
+          return [];
+        }
+      }
+
+      // FUNGSI BARU: Merender daftar user (followers/following) ke dalam container
+      async function renderFollowList(containerId, userList, emptyMessage, showAll = false) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        if (!userList || userList.length === 0) {
+          container.innerHTML = `<p class="text-slate-400 text-xs text-center p-4">${emptyMessage}</p>`;
+          return;
+        }
+
+        // Jika tidak diminta menampilkan semua, dan ada lebih dari 1 user,
+        // tampilkan hanya preview (1 item) dan tombol "Lihat Semua".
+        let toRender = userList;
+        const isPreview = !showAll && Array.isArray(userList) && userList.length > 1;
+        if (isPreview) toRender = userList.slice(0, 1);
+
+        // Ambil semua URL avatar secara paralel
+        const listHtml = await Promise.all(toRender.map(async (user) => {
+          const avatarUrl = await getAvatarUrl(user.avatar_url);
+          const name = user.full_name || 'Anonymous';
+          
+          // *** LOGIKA AVATAR BARU ***
+          const avatarHTML = (avatarUrl && avatarUrl !== '/default-avatar.png')
+              ? `<img src="${avatarUrl}" alt="${sanitizeHTML(name)}" class="w-full h-full object-cover" onerror="this.onerror=null;this.src='/default-avatar.png'">`
+              : `<div class="w-full h-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-white font-medium">
+                   ${(name || 'A')[0].toUpperCase()}
+                 </div>`;
+          // *** AKHIR LOGIKA AVATAR BARU ***
+          
+          return `
+            <div class="flex items-center justify-between p-2 rounded-lg hover:bg-slate-700/50">
+                <div class="flex items-center gap-3">
+
+                    <div class="h-9 w-9 rounded-full bg-slate-900 overflow-hidden flex items-center justify-center text-white flex-shrink-0">
+                      ${avatarHTML}
+                    </div>
+                    <span class="text-sm text-slate-100 font-medium">${sanitizeHTML(name)}</span>
+                </div>
+                <button class="view-profile-btn text-xs bg-cyan-600/90 text-white px-2.5 py-1.5 rounded-md hover:bg-cyan-500 font-medium" data-user-id="${user.id}">View</button>
+            </div>
+          `;
+        }));
+
+        // Jika preview, tambahkan tombol "Lihat Semua" di bawah item
+        if (isPreview) {
+          container.innerHTML = `
+            <div class="space-y-1">${listHtml.join('')}</div>
+            <div class="pt-2">
+              <button id="lihatSemuaBtn-${containerId}" class="w-full text-xs bg-slate-700/40 text-slate-200 px-3 py-2 rounded-md hover:bg-slate-700">Lihat Semua</button>
+            </div>
+          `;
+        } else {
+          container.innerHTML = `<div class="space-y-1">${listHtml.join('')}</div>`;
+        }
+
+        // Tambahkan event listener untuk tombol "View"
+        container.querySelectorAll('.view-profile-btn').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const targetUserId = e.currentTarget.dataset.userId;
+            
+            const currentModal = document.getElementById('profileModal');
+            if (currentModal) currentModal.remove();
+            
+            showUserProfilePopup(targetUserId);
+          });
+        });
+
+        // Jika kita berada di mode preview, tambahkan handler untuk tombol "Lihat Semua"
+        if (!showAll && Array.isArray(userList) && userList.length > 1) {
+          const lihatBtn = document.getElementById(`lihatSemuaBtn-${containerId}`);
+          if (lihatBtn) {
+            lihatBtn.addEventListener('click', async (e) => {
+              e.preventDefault();
+              // Render ulang daftar penuh
+              await renderFollowList(containerId, userList, emptyMessage, true);
+            });
+          }
+        }
+      }
+
+      async function unfollowUser(userId) {
+        try {
+          if (!window.currentUser?.id) {
+            showToast('Error', 'Please login to unfollow users', 'error');
+            return;
+          }
+
+          if (userId === window.currentUser.id) {
+            showToast('Error', 'Invalid operation', 'error');
+            return;
+          }
+
+          // First update UI optimistically
+          updateFollowButton(userId, false);
+          updateFollowerCountUI(userId, -1); // <-- TAMBAHKAN INI (-1)
+
+          if (hasFollowsTable) {
+            const { error } = await supabase
+              .from('follows')
+              .delete()
+              .eq('follower_id', window.currentUser.id)
+              .eq('following_id', userId);
+
+            if (error) {
+              console.error('Error unfollowing user:', error);
+              // Revert UI on error
+              updateFollowButton(userId, true);
+              updateFollowerCountUI(userId, 1); // <-- TAMBAHKAN INI (Batal, +1)
+              showToast('Error', 'Could not unfollow user: ' + error.message, 'error');
+              return;
+            }
+            
+            // Decrement followers_count in profiles table (ini tetap jalan)
+            try {
+              const { data: prof, error: profErr } = await supabase
+                .from('profiles')
+                .select('followers_count')
+                .eq('id', userId)
+                .single();
+              if (!profErr && prof) {
+                const newCount = Math.max(0, (prof.followers_count || 0) - 1);
+                await supabase.from('profiles').update({ followers_count: newCount }).eq('id', userId);
+              }
+            } catch (e) {
+              console.warn('Could not decrement followers_count:', e);
+            }
+
+            showToast('Success', 'Successfully unfollowed user', 'success');
+          } else {
+
+            try {
+              const localFollows = JSON.parse(localStorage.getItem('follows') || '[]');
+              
+              // Check if actually following
+              if (!localFollows.some(f => 
+                f.follower_id === window.currentUser.id && 
+                f.following_id === userId
+              )) {
+                showToast('Info', 'You are not following this user', 'info');
+                return;
+              }
+
+              const filtered = localFollows.filter(f => 
+                !(f.follower_id === window.currentUser.id && f.following_id === userId)
+              );
+              localStorage.setItem('follows', JSON.stringify(filtered));
+              
+              showToast('Info', 'Unfollow saved locally - server storage not available', 'info');
+            } catch (localErr) {
+              console.error('Error saving unfollow locally:', localErr);
+              // Revert UI on error
+              updateFollowButton(userId, true);
+              showToast('Error', 'Could not save unfollow data locally', 'error');
+            }
+          }
+        } catch (err) {
+          console.error('Error unfollowing user:', err);
+          // Revert UI on error
+          updateFollowButton(userId, true);
+          updateFollowerCountUI(userId, 1); // <-- TAMBAHKAN INI (Batal, +1)
+          showToast('Error', 'Failed to unfollow user', 'error');
+        }
+      }
+
+
+      
+     async function isFollowing(userId) {
+        try {
+          if (hasFollowsTable) {
+            
+            // *** PERBAIKAN: Ganti .single() menjadi .maybeSingle() ***
+            // .single() melempar error jika tidak ada data, .maybeSingle() tidak.
+            const { data, error } = await supabase
+              .from('follows')
+              .select('follower_id')
+              .eq('follower_id', window.currentUser?.id)
+              .eq('following_id', userId)
+              .maybeSingle(); // <-- GANTI KE INI
+
+            // Jika ada error selain "data tidak ditemukan", baru lempar error
+            if (error) throw error; 
+            
+            // Jika data ada (tidak null), berarti 'is following'
+            return !!data; 
+            
+          } else {
+            const localFollows = JSON.parse(localStorage.getItem('follows') || '[]');
+            return localFollows.some(f => 
+              f.follower_id === window.currentUser?.id && 
+              f.following_id === userId
+            );
+          }
+        } catch (err) {
+          console.error('Error checking follow status:', err);
+          return false;
+        }
+      }
+
+      //sanitize HTML untuk mencegah XSS
+      function sanitizeHTML(str) {
+        const div = document.createElement("div");
+        div.textContent = str;
+        return div.innerHTML;
+      }
+
+     // Filter kata kasar
+     const badWords = ["tolol", "bacot", "anjing", "asu", "fuckyou", "babi", "bapak kau", "bujang", "kontol", "memek", "perek", "jancuk"];
+      function filterBadWords(content) {
+        let filteredContent = content;
+        let hasBadWord = false;
+        const placeholder = "__BAD_WORD__"; // Placeholder untuk kata kasar
+
+        // Ganti kata kasar dengan placeholder
+        badWords.forEach(word => {
+          const regex = new RegExp(`\\b${word}\\b`, 'gi');
+          if (regex.test(filteredContent)) {
+            hasBadWord = true;
+            filteredContent = filteredContent.replace(regex, placeholder);
+          }
+        });
+
+        if (hasBadWord) {
+          showToast("Warning", "Rude words have been removed from your message!", "info");
+        }
+
+        return filteredContent;
+      }
+
+      // Format waktu relatif
+      function timeAgo(date) {
+        const now = new Date();
+        const seconds = Math.floor((now - new Date(date)) / 1000);
+        if (seconds < 60) return `${seconds} detik lalu`;
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return `${minutes} menit lalu`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `${hours} jam lalu`;
+        return new Date(date).toLocaleDateString("id-ID");
+      }
+
+      // Validasi UUID
+      function isValidUuid(uuid) {
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        return uuidRegex.test(uuid);
+      }
+
+      // Normalisasi struktur likes
+      function normalizeLikes(likes) {
+        if (!Array.isArray(likes)) {
+          return [];
+        }
+        return likes.filter(like => like && like.type && like.user_id && isValidUuid(like.user_id));
+      }
+
+      // Mendapatkan jumlah like per tipe
+      function getLikesCount(likes, type) {
+        return normalizeLikes(likes).filter(like => like.type === type).length;
+      }
+
+      // Fungsi untuk menambahkan satu pesan admin ke DOM
+      async function appendAdminMessage(msg) {
+        const adminMessages = document.getElementById("adminMessages");
+        if (!adminMessages) return;
+
+        const adminMessageEl = document.createElement("div");
+        adminMessageEl.className = "mb-4 last:mb-0 bg-gradient-to-br from-slate-800/30 to-slate-900/20 border border-slate-700/40 rounded-xl p-4 text-slate-100 shadow-md animate-fade-in";
+        adminMessageEl.setAttribute("data-admin-message-id", msg.id);
+
+        const timestamp = new Date(msg.created_at).toLocaleString("id-ID", {
+          hour: "numeric", minute: "numeric", hour12: true,
+          day: "numeric", month: "short", year: "numeric"
+        });
+
+        const sanitizedContent = sanitizeHTML(msg.content);
+adminMessageEl.innerHTML = `
+  <div class="flex items-start gap-4 p-4 bg-gradient-to-br from-slate-900/40 to-slate-950/30 rounded-xl border border-slate-800/50 shadow-lg shadow-slate-900/20">
+    <div class="flex-shrink-0 p-2.5 bg-gradient-to-br from-slate-700 to-slate-800 rounded-full shadow-md">
+      <i data-lucide="shield-alert" class="h-6 w-6 text-white"></i>
+    </div>
+    <div class="flex-1 space-y-2">
+      <div class="flex items-center justify-between">
+        <div class="font-medium text-white/90 text-lg flex items-center gap-2">
+          <i data-lucide="verified" class="h-5 w-5 text-cyan-300"></i>
+          <span class="bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-slate-200">Official Announcement</span>
+        </div>
+        <div class="text-xs text-cyan-200/80 flex items-center bg-slate-900/30 px-2 py-1 rounded-full">
+          <i data-lucide="clock" class="h-3 w-3 mr-1.5"></i>
+          <span>${timestamp}</span>
+        </div>
+      </div>
+      <div class="pl-1 text-white/90 leading-relaxed text-base font-light space-y-2">
+        ${sanitizedContent.split('\n').map(p => `<p class="flex items-start gap-2"><i data-lucide="chevron-right" class="h-4 w-4 mt-1 flex-shrink-0 text-cyan-300/80"></i><span>${p}</span></p>`).join('')}
+      </div>
+      <div class="pt-2 flex items-center gap-3 text-xs text-cyan-300/70">
+        <div class="flex items-center">
+          <i data-lucide="info" class="h-3 w-3 mr-1.5"></i>
+          <span>Admin Team</span>
+        </div>
+        <a href="https://twitter.com/aqula_app " target="_blank" rel="noopener noreferrer" class="flex items-center">
+          <i data-lucide="twitter" class="h-3 w-3 mr-1.5"></i>
+          <span>@aqula_app</span>
+        </a>
+        <a href="https://www.youtube.com/@aqulaapp" target="_blank" rel="noopener noreferrer" class="flex items-center">
+          <i data-lucide="youtube" class="h-3 w-3 mr-1.5 text-red-500"></i>
+          <span>@aqulaapp</span>
+        </a>
+      </div>
+    </div>
+  </div>`;
+
+
+        adminMessages.appendChild(adminMessageEl);
+        lucide.createIcons();
+      }
+
+      // Fungsi untuk menambahkan satu pesan ke DOM
+      // Fungsi untuk mendapatkan URL avatar yang valid
+      async function getAvatarUrl(avatarPath) {
+        if (!avatarPath) return '/default-avatar.png';
+        try {
+          // Cek apakah path sudah berupa URL lengkap
+          if (avatarPath.startsWith('http')) {
+            return avatarPath;
+          }
+          
+          // Jika menggunakan Supabase Storage
+          // Pastikan path tidak diawali slash
+          let path = avatarPath;
+          if (path.startsWith('/')) path = path.substring(1);
+          // Jika path disimpan dengan folder 'avatars/...' hapus prefix itu
+          if (path.startsWith('avatars/')) path = path.replace('avatars/', '');
+          const { data } = await supabase.storage
+            .from('avatars')
+            .getPublicUrl(path);
+            
+          if (data?.publicUrl) {
+            // Return the public URL with cache-busting param; the <img> tags include onerror fallback
+            return `${data.publicUrl}?t=${Date.now()}`;
+          }
+          
+          console.log('Avatar URL generated:', data?.publicUrl);
+          return '/default-avatar.png';
+        } catch (err) {
+          console.error('Error getting avatar URL:', err);
+          return '/default-avatar.png';
+        }
+      }
+
+// Unified Followers/Following modal with search (Instagram-like)
+async function showUnifiedFollowModal(userId, initialTab = 'followers') {
+  try {
+    if (!userId) return;
+    // Remove existing modal if present
+    document.getElementById('unifiedFollowModal')?.remove();
+
+    // Create basic modal HTML
+    const modalHtml = `
+      <div id="unifiedFollowModal" class="fixed inset-0 flex items-center justify-center z-60 p-4">
+        <div class="fixed inset-0 bg-black/50" id="unifiedFollowModalBackdrop"></div>
+        <div class="relative w-full max-w-md z-10 bg-slate-900 rounded-xl border border-slate-700/60 shadow-2xl overflow-hidden">
+          <div class="px-4 py-3 flex items-center justify-between border-b border-slate-700/40">
+            <div class="flex items-center gap-3">
+              <div class="text-lg font-semibold text-white">Followers & Following</div>
+              <div id="unifiedFollowCounts" class="text-xs text-slate-400 ml-2"></div>
+            </div>
+            <button id="unifiedFollowClose" class="text-slate-300 hover:text-white p-2 rounded-md"><i data-lucide="x" class="h-4 w-4"></i></button>
+          </div>
+
+          <div class="px-4 py-3">
+            <div class="flex items-center gap-2 mb-3">
+              <div class="flex rounded-lg bg-slate-800/50 px-2 py-1 border border-slate-700/40 w-full">
+                <input id="unifiedFollowSearch" placeholder="Search followers or following" class="bg-transparent outline-none text-sm text-slate-200 w-full" />
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <div class="inline-flex bg-slate-800/40 rounded-md p-1" role="tablist">
+                <button id="unifiedTabFollowers" class="unified-tab active text-sm px-3 py-1 rounded-md bg-transparent text-white">Followers</button>
+                <button id="unifiedTabFollowing" class="unified-tab text-sm px-3 py-1 rounded-md text-slate-400">Following</button>
+              </div>
+            </div>
+
+            <div id="unifiedFollowList" class="max-h-72 overflow-y-auto px-1 space-y-1 pb-3"></div>
+          </div>
+        </div>
+      </div>`;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    lucide.createIcons();
+
+    const modal = document.getElementById('unifiedFollowModal');
+    const closeBtn = document.getElementById('unifiedFollowClose');
+    const searchInput = document.getElementById('unifiedFollowSearch');
+    const tabFollowers = document.getElementById('unifiedTabFollowers');
+    const tabFollowing = document.getElementById('unifiedTabFollowing');
+    const listEl = document.getElementById('unifiedFollowList');
+    const countsEl = document.getElementById('unifiedFollowCounts');
+
+    let followers = [];
+    let following = [];
+    let activeTab = initialTab === 'following' ? 'following' : 'followers';
+    let searchTerm = '';
+    let searchTimer = null;
+
+    // Load both lists in background
+    const loadBoth = async () => {
+      try {
+        followers = await getFollowers(userId).catch(() => []);
+      } catch (e) { followers = []; }
+      try {
+        following = await getFollowing(userId).catch(() => []);
+      } catch (e) { following = []; }
+      countsEl.textContent = `${followers.length} / ${following.length}`;
+      renderActiveList();
+    };
+
+    // Render helper
+    async function renderActiveList() {
+      listEl.innerHTML = '<div class="py-6 text-sm text-slate-400">Loading...</div>';
+      const source = activeTab === 'following' ? following : followers;
+      let filtered = source || [];
+      if (searchTerm && searchTerm.trim().length > 0) {
+        const q = searchTerm.trim().toLowerCase();
+        filtered = filtered.filter(u => (u.username || '').toLowerCase().includes(q) || (u.full_name || '').toLowerCase().includes(q));
+      }
+      if (!filtered || filtered.length === 0) {
+        listEl.innerHTML = `<div class="py-6 text-sm text-slate-400 text-center">No results</div>`;
+        return;
+      }
+
+      const rows = await Promise.all(filtered.map(async (u) => {
+        const avatarUrl = await getAvatarUrl(u.avatar_url).catch(() => '/default-avatar.png');
+        const name = sanitizeHTML(u.full_name || u.username || 'User');
+        return `
+          <div class="flex items-center justify-between p-2 rounded-lg hover:bg-slate-700/40">
+            <div class="flex items-center gap-3">
+              <div class="h-9 w-9 rounded-full overflow-hidden bg-slate-900 flex items-center justify-center text-white flex-shrink-0">
+                <img src="${avatarUrl}" class="w-full h-full object-cover" onerror="this.onerror=null;this.src='/default-avatar.png'" />
+              </div>
+              <div class="flex flex-col">
+                <button class="text-sm text-slate-100 view-profile-from-unified" data-user-id="${u.id}">${name}</button>
+                <span class="text-xs text-slate-400">@${sanitizeHTML(u.username || (u.id || '').substring(0,8))}</span>
+              </div>
+            </div>
+            <div>
+              <button class="follow-toggle-btn text-xs px-3 py-1 rounded-md bg-cyan-600/90 text-white" data-user-id="${u.id}">...</button>
+            </div>
+          </div>`;
+      }));
+
+      listEl.innerHTML = `<div class="space-y-1">${rows.join('')}</div>`;
+      lucide.createIcons();
+
+      // Attach event handlers for view-profile
+      listEl.querySelectorAll('.view-profile-from-unified').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const uid = e.currentTarget.dataset.userId;
+          document.getElementById('unifiedFollowModal')?.remove();
+          showUserProfilePopup(uid);
+        });
+      });
+
+      // For follow/unfollow buttons, set state then attach handler
+      listEl.querySelectorAll('.follow-toggle-btn').forEach(async (btn) => {
+        const uid = btn.dataset.userId;
+        // Determine follow state
+        try {
+          const followed = await isFollowing(uid).catch(() => false);
+          btn.textContent = followed ? 'Following' : 'Follow';
+          btn.classList.toggle('bg-green-600', followed);
+          btn.classList.toggle('bg-cyan-600/90', !followed);
+        } catch (e) {
+          btn.textContent = 'Follow';
+        }
+        btn.addEventListener('click', async (ev) => {
+          ev.stopPropagation();
+          try {
+            await toggleFollow(uid);
+          } catch (e) { console.warn('toggleFollow failed', e); }
+          // refresh lists and counts
+          await loadBoth();
+        });
+      });
+    }
+
+    // Tab handlers
+    tabFollowers.addEventListener('click', (e) => { e.stopPropagation(); activeTab = 'followers'; tabFollowers.classList.add('text-white'); tabFollowers.classList.remove('text-slate-400'); tabFollowing.classList.remove('text-white'); tabFollowing.classList.add('text-slate-400'); renderActiveList(); });
+    tabFollowing.addEventListener('click', (e) => { e.stopPropagation(); activeTab = 'following'; tabFollowing.classList.add('text-white'); tabFollowing.classList.remove('text-slate-400'); tabFollowers.classList.remove('text-white'); tabFollowers.classList.add('text-slate-400'); renderActiveList(); });
+
+    closeBtn.addEventListener('click', () => document.getElementById('unifiedFollowModal')?.remove());
+    document.getElementById('unifiedFollowModalBackdrop').addEventListener('click', () => document.getElementById('unifiedFollowModal')?.remove());
+
+    // Search with debounce
+    searchInput.addEventListener('input', (e) => {
+      clearTimeout(searchTimer);
+      searchTerm = e.target.value || '';
+      searchTimer = setTimeout(() => renderActiveList(), 200);
+    });
+
+    // Kick off initial load
+    await loadBoth();
+    // Set initial active tab visuals
+    if (activeTab === 'following') { tabFollowing.click(); } else { tabFollowers.click(); }
+
+  } catch (err) {
+    console.error('showUnifiedFollowModal error:', err);
+    showToast('Error', 'Could not open followers/following modal', 'error');
+  }
+}
+
+    async function showUserProfilePopup(userId) {
+      if (!userId) return;
+
+      const isSelfProfile = userId === window.currentUser?.id;
+
+      try {
+        // remove existing modal if any
+        document.getElementById('profileModal')?.remove();
+
+        // fetch profile
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .maybeSingle();
+        if (profileError) throw profileError;
+        if (!profile) throw new Error('Profile not found');
+
+        // resolve avatar URL
+        const avatarUrl = await getAvatarUrl(profile.avatar_url);
+
+        // follower / following counts (use helper functions which handle schema fallback)
+        const followersList = await getFollowers(userId).catch(() => []);
+        const followingList = await getFollowing(userId).catch(() => []);
+        const followersCount = followersList.length;
+        const followingCount = followingList.length;
+
+        // whether current user follows this profile
+        let amFollowing = false;
+        try { amFollowing = !isSelfProfile && await isFollowing(userId); } catch (e) { amFollowing = false; }
+
+        const safeFullName = sanitizeHTML(profile.full_name || 'Anonymous');
+        const safeUsername = sanitizeHTML(profile.username || (userId ? userId.substring(0, 8) : 'user'));
+        const safeBio = sanitizeHTML(profile.bio || (isSelfProfile ? 'Click the edit button to add your bio!' : ''));
+
+        const modalHtml = `
+          <div class="fixed inset-0 flex items-center justify-center z-50 p-4" id="profileModal">
+            <div class="fixed inset-0 backdrop-blur-sm bg-black/40"></div>
+
+            <div class="relative w-full max-w-sm z-10">
+              <button id="profileModalClose" class="absolute -top-12 right-0 text-slate-300 hover:text-white transition-all duration-300 bg-slate-800/80 backdrop-blur-md rounded-full p-2 z-20 hover:scale-110 border border-slate-700/60">
+                <i data-lucide="x" class="h-5 w-5"></i>
+              </button>
+
+              <div class="bg-gradient-to-br from-slate-800/90 to-slate-900/90 rounded-xl border border-slate-700/60 shadow-2xl overflow-hidden">
+                <div class="h-24 bg-gradient-to-r from-teal-500/20 via-cyan-500/20 to-blue-500/20 relative">
+                  <div class="absolute -bottom-12 left-1/2 transform -translate-x-1/2">
+                    <div class="relative">
+                      <div class="w-24 h-24 rounded-full p-1 shadow-2xl" style="background:linear-gradient(90deg,#14b8a6,#06b6d4);">
+                        <div class="w-full h-full rounded-full bg-slate-900 p-1 overflow-hidden">
+                          ${avatarUrl !== '/default-avatar.png'
+                            ? `<img src="${avatarUrl}" alt="${safeFullName}" class="w-full h-full rounded-full object-cover" onerror="this.onerror=null;this.src='/default-avatar.png'">`
+                            : `<div class="w-full h-full rounded-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-white text-2xl font-bold">${(safeFullName || 'A')[0].toUpperCase()}</div>`
+                          }
+                        </div>
+                      </div>
+                      <div class="absolute -bottom-1 -right-1 bg-cyan-500 rounded-full border-2 border-slate-900 h-6 w-6 flex items-center justify-center">
+                        <i data-lucide="badge-check" class="h-4 w-4 text-white"></i>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="pt-16 pb-6 px-6 flex flex-col items-center">
+                  <div class="text-center mb-4 w-full">
+                    <h2 class="text-2xl font-bold text-slate-100 mb-1">${safeFullName}</h2>
+                    <p class="text-cyan-300 font-medium mb-2 text-center">@${safeUsername}</p>
+                    <p id="profile-bio-text" class="text-slate-400 text-sm leading-relaxed text-center">${safeBio}</p>
+                    ${isSelfProfile ? `<button id="profile-bio-edit-btn" class="mt-2 text-cyan-400 text-xs font-medium flex items-center justify-center mx-auto hover:text-cyan-300"><i data-lucide="edit-2" class="h-3 w-3 mr-1"></i> Edit Bio</button>` : ''}
+                    <div id="profile-bio-editor" class="hidden mt-2 text-left w-full">
+                      <textarea id="profile-bio-input" class="w-full bg-slate-800 text-white rounded-lg p-2 text-sm border border-slate-700/50" rows="4">${sanitizeHTML(profile.bio || '')}</textarea>
+                      <div class="flex justify-end gap-2 mt-2">
+                        <button id="profile-bio-cancel" class="text-xs text-slate-300 px-3 py-1 rounded-lg hover:bg-slate-700">Cancel</button>
+                        <button id="profile-bio-save" class="text-xs bg-cyan-600 text-white px-3 py-1 rounded-lg hover:bg-cyan-500 font-medium">Save</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="flex justify-center items-center gap-6 mb-6 bg-slate-800/50 rounded-2xl p-4 border border-slate-700/50 w-full">
+                    <div class="text-center">
+                      <div class="text-slate-100 font-bold text-xl">${profile.points || 0}</div>
+                      <div class="text-cyan-300 text-xs font-medium mt-1">POINTS</div>
+                    </div>
+                    <div class="text-center">
+                      <div id="profile-followers-count-${userId}" class="text-slate-100 font-bold text-xl">${followersCount}</div>
+                      <div class="text-teal-300 text-xs font-medium mt-1">FOLLOWERS</div>
+                    </div>
+                    <div class="text-center">
+                      <div class="text-slate-100 font-bold text-xl">${profile.booster || 'None'}</div>
+                      <div class="text-blue-300 text-xs font-medium mt-1">BOOSTER</div>
+                    </div>
+                  </div>
+
+                  <div class="w-full mb-6 border-t border-slate-700/60 pt-4">
+                    <div class="flex mb-2 border-b border-slate-700/60">
+                      ${isSelfProfile ? `<button id="show-inbox-btn" class="follow-tab-btn flex-1 pb-2 text-sm font-medium text-white border-b-2 border-cyan-400" data-target="inbox-list-container">Inbox</button>` : ''}
+                      <button id="show-followers-btn" class="follow-tab-btn flex-1 pb-2 text-sm font-medium ${isSelfProfile ? 'text-slate-400 border-transparent' : 'text-white border-cyan-400'}" data-target="follower-list-container">Followers (${followersCount})</button>
+                      <button id="show-following-btn" class="follow-tab-btn flex-1 pb-2 text-sm font-medium text-slate-400 border-b-2 border-transparent" data-target="following-list-container">Following (${followingCount})</button>
+                    </div>
+
+                    <div class="relative max-h-60 overflow-y-auto">
+                      ${isSelfProfile ? `<div id="inbox-list-container" class="follow-list-content" data-loaded="false"></div>` : ''}
+                      <div id="follower-list-container" class="follow-list-content ${isSelfProfile ? 'hidden' : ''}" data-loaded="false"></div>
+                      <div id="following-list-container" class="follow-list-content hidden" data-loaded="false"></div>
+                    </div>
+                  </div>
+
+                  <div class="space-y-3 w-full">
+                    <button id="followBtn-${userId}" class="w-full py-3.5 px-4 rounded-xl font-semibold transition-all duration-300 ${amFollowing ? 'bg-gradient-to-r from-slate-700 to-slate-800 text-slate-200 border border-slate-600/50 shadow-lg' : 'bg-gradient-to-r from-teal-500 to-cyan-600 text-white shadow-lg'}">
+                      <div class="flex items-center justify-center space-x-2">
+                        <i data-lucide="${amFollowing ? 'user-check' : 'user-plus'}" class="h-4 w-4"></i>
+                        <span>${amFollowing ? 'Following' : 'Follow User'}</span>
+                      </div>
+                    </button>
+
+                    <button id="sendMsgBtn-${userId}" class="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-semibold shadow-lg transition-all duration-300">
+                      <div class="flex items-center justify-center space-x-2">
+                        <i data-lucide="send" class="h-4 w-4"></i>
+                        <span>Send Message</span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="bg-slate-800/50 border-t border-slate-700/60 px-6 py-4">
+                  <div class="flex justify-between text-xs text-slate-400">
+                    <span>Joined ${new Date(profile.created_at).toLocaleDateString()}</span>
+                    <span class="flex items-center"><span class="w-2 h-2 bg-green-500 rounded-full mr-1.5"></span>Active now</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="absolute -z-10 top-1/4 -left-10 w-20 h-20 bg-cyan-400/10 rounded-full blur-xl"></div>
+              <div class="absolute -z-10 bottom-1/4 -right-10 w-20 h-20 bg-blue-400/10 rounded-full blur-xl"></div>
+            </div>
+          </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        lucide.createIcons();
+
+        const modal = document.getElementById('profileModal');
+        if (!modal) return;
+
+        // entrance animation
+        modal.style.opacity = '0';
+        modal.style.transform = 'scale(0.96)';
+        setTimeout(() => {
+          modal.style.transition = 'all 180ms ease';
+          modal.style.opacity = '1';
+          modal.style.transform = 'scale(1)';
+        }, 20);
+
+        // close handlers
+        document.getElementById('profileModalClose')?.addEventListener('click', () => modal.remove());
+        modal.querySelector('.fixed.inset-0.backdrop-blur-sm')?.addEventListener('click', () => modal.remove());
+
+        // bio edit handlers
+        if (isSelfProfile) {
+          document.getElementById('profile-bio-edit-btn')?.addEventListener('click', () => toggleBioEditor(true));
+          document.getElementById('profile-bio-cancel')?.addEventListener('click', () => toggleBioEditor(false));
+          document.getElementById('profile-bio-save')?.addEventListener('click', saveProfileBio);
+        }
+
+        // follow button
+        document.getElementById(`followBtn-${userId}`)?.addEventListener('click', async (e) => {
+          e.preventDefault();
+          await toggleFollow(userId);
+          // update follower count display optimistically
+          const el = document.getElementById(`profile-followers-count-${userId}`);
+          if (el) {
+            const current = parseInt(el.textContent || '0', 10) || 0;
+            el.textContent = amFollowing ? Math.max(0, current - 1) : (current + 1);
+          }
+        });
+
+        // send message button
+        document.getElementById(`sendMsgBtn-${userId}`)?.addEventListener('click', () => {
+          modal.remove();
+          startDirectMessage(userId);
+        });
+
+        // tab logic (lazy load)
+        const tabs = modal.querySelectorAll('.follow-tab-btn');
+        const lists = modal.querySelectorAll('.follow-list-content');
+
+        const loadList = async (targetId) => {
+          const target = document.getElementById(targetId);
+          if (!target) return;
+          if (target.dataset.loaded === 'true') return;
+          target.innerHTML = `<p class="text-slate-400 text-xs text-center p-4">Loading...</p>`;
+          target.dataset.loaded = 'true';
+          try {
+            if (targetId === 'follower-list-container') {
+              const users = await getFollowers(userId);
+              await renderFollowList(targetId, users, 'No followers yet.');
+            } else if (targetId === 'following-list-container') {
+              const users = await getFollowing(userId);
+              await renderFollowList(targetId, users, 'Not following anyone yet.');
+            } else if (targetId === 'inbox-list-container') {
+              await renderConversations(targetId);
+              try {
+                const convs = await getConversations();
+                await Promise.all((convs || []).map(c => markConversationRead(c.userId)));
+                updateInboxBadge('clear');
+              } catch (e) { /* ignore */ }
+            }
+          } catch (err) {
+            target.innerHTML = `<p class="text-rose-400 text-xs text-center p-4">Failed to load list.</p>`;
+          }
+        };
+
+        tabs.forEach(tab => {
+          tab.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            // If user clicked Followers/Following, open unified modal instead
+            const targetId = tab.dataset.target;
+            if (targetId === 'follower-list-container') {
+              await showUnifiedFollowModal(userId, 'followers');
+              return;
+            }
+            if (targetId === 'following-list-container') {
+              await showUnifiedFollowModal(userId, 'following');
+              return;
+            }
+
+            // style
+            tabs.forEach(t => { t.classList.remove('text-white', 'border-cyan-400'); t.classList.add('text-slate-400', 'border-transparent'); });
+            tab.classList.add('text-white', 'border-cyan-400');
+            tab.classList.remove('text-slate-400', 'border-transparent');
+
+            // show/hide lists
+            lists.forEach(l => l.classList.add('hidden'));
+            document.getElementById(targetId)?.classList.remove('hidden');
+
+            await loadList(targetId);
+          });
+        });
+
+        // automatically open first meaningful tab
+        (async () => {
+          let firstTabId = null;
+          if (isSelfProfile && document.getElementById('inbox-list-container')) firstTabId = 'inbox-list-container';
+          else if (document.getElementById('follower-list-container')) firstTabId = 'follower-list-container';
+          else if (document.getElementById('following-list-container')) firstTabId = 'following-list-container';
+
+          if (!firstTabId) return;
+
+          // activate corresponding tab button
+          const targetBtn = Array.from(tabs).find(t => t.dataset.target === firstTabId);
+          if (targetBtn) targetBtn.click();
+          else {
+            // fallback: show the list directly and load
+            lists.forEach(l => l.classList.add('hidden'));
+            document.getElementById(firstTabId)?.classList.remove('hidden');
+            await loadList(firstTabId);
+          }
+        })().catch(() => { /* ignore */ });
+
+      } catch (err) {
+        console.error('Error showing profile:', err);
+        showToast('Error', 'Failed to load user profile', 'error');
+      }
+    }
+
+      // Fungsi untuk menampilkan/menyembunyikan editor bio
+      function toggleBioEditor(show) {
+        try {
+          const textEl = document.getElementById('profile-bio-text');
+          const editBtn = document.getElementById('profile-bio-edit-btn');
+          const editorEl = document.getElementById('profile-bio-editor');
+
+          if (show) {
+            // Sembunyikan teks bio dan tombol edit
+            textEl.style.display = 'none';
+            if (editBtn) editBtn.style.display = 'none';
+            // Tampilkan editor
+            editorEl.style.display = 'block';
+            document.getElementById('profile-bio-input').focus();
+          } else {
+            // Tampilkan lagi teks bio dan tombol edit
+            textEl.style.display = 'block';
+            if (editBtn) editBtn.style.display = 'flex'; // Tombol edit menggunakan 'flex'
+            // Sembunyikan editor
+            editorEl.style.display = 'none';
+          }
+        } catch (e) {
+          console.error('Error toggling bio editor:', e);
+        }
+      }
+
+      // Fungsi untuk menyimpan bio baru ke Supabase
+      async function saveProfileBio() {
+        const input = document.getElementById('profile-bio-input');
+        if (!input) return;
+        
+        const newBio = input.value;
+        const currentUserId = window.currentUser?.id;
+
+        if (!currentUserId) {
+          showToast('Error', 'You must be logged in.', 'error');
+          return;
+        }
+
+        try {
+          const { data, error } = await supabase
+            .from('profiles')
+            .update({ bio: newBio })
+            .eq('id', currentUserId)
+            .select()
+            .single();
+
+          if (error) throw error;
+
+          // Perbarui teks bio di UI
+          const bioTextElement = document.getElementById('profile-bio-text');
+          bioTextElement.innerText = newBio || 'Click the edit button to add your bio!';
+          
+          // Perbarui juga data profil di memori
+          if (window.currentUser.profile) {
+            window.currentUser.profile.bio = newBio;
+          }
+          
+          toggleBioEditor(false); // Sembunyikan editor
+          showToast('Success', 'Bio updated successfully!', 'success');
+
+        } catch (err) {
+          console.error('Error saving bio:', err);
+          showToast('Error', 'Failed to save bio.', 'error');
+        }
+      }
+
+
+      
+      // Toggle follow status
+      async function toggleFollow(userId) {
+        const isCurrentlyFollowing = await isFollowing(userId);
+        if (isCurrentlyFollowing) {
+          await unfollowUser(userId);
+        } else {
+          await followUser(userId);
+        }
+      }
+
+      // Start direct message
+      function startDirectMessage(userId) {
+        document.getElementById('profileModal')?.remove();
+        showDirectMessageModal(userId);
+      }
+
+      // Voice recording state for DM
+      let dmVoiceRecorder = null;
+      let dmVoiceStream = null;
+      let dmVoiceChunks = [];
+      let dmVoiceStartTime = null;
+      let dmVoiceTimerInterval = null;
+
+      // Start DM voice recording
+      async function startDMVoiceRecord(userId) {
+        const voiceBtn = document.getElementById(`dmVoiceBtn-${userId}`);
+        if (!voiceBtn) return;
+
+        try {
+          if (dmVoiceRecorder) {
+            // Stop recording
+            dmVoiceRecorder.stop();
+            dmVoiceRecorder = null;
+            if (dmVoiceTimerInterval) { clearInterval(dmVoiceTimerInterval); dmVoiceTimerInterval = null; }
+            dmVoiceStartTime = null;
+            voiceBtn.classList.remove('bg-red-600', 'animate-pulse');
+            voiceBtn.classList.add('bg-slate-700/80');
+            const timerDisplay = voiceBtn.parentElement?.querySelector('.voice-timer');
+            if (timerDisplay) timerDisplay.remove();
+            return;
+          }
+
+          // Start recording
+          dmVoiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          dmVoiceChunks = [];
+          
+          const mediaRecorder = new MediaRecorder(dmVoiceStream, { mimeType: 'audio/webm' });
+          dmVoiceRecorder = mediaRecorder;
+          dmVoiceStartTime = Date.now();
+
+          mediaRecorder.ondataavailable = (e) => {
+            dmVoiceChunks.push(e.data);
+          };
+
+          mediaRecorder.onstop = async () => {
+            try {
+              const blob = new Blob(dmVoiceChunks, { type: 'audio/webm' });
+              const duration = Math.round(blob.size / 16000); // Rough estimate
+
+              // Upload to Supabase storage
+              const filePath = `dm-audio/${userId}/${window.currentUser.id}/${Date.now()}.webm`;
+              const { data: uploadData, error: uploadError } = await supabase.storage
+                .from('avatars')
+                .upload(filePath, blob);
+
+              if (uploadError) {
+                console.error('Supabase audio upload error:', uploadError);
+                throw uploadError;
+              }
+
+              // Get public URL
+              const publicRes = await supabase.storage.from('avatars').getPublicUrl(filePath);
+              const publicUrl = publicRes?.data?.publicUrl || publicRes?.publicUrl || null;
+              if (!publicUrl) {
+                console.error('Failed to get public URL for uploaded audio', publicRes);
+                throw new Error('Failed to obtain public URL for audio');
+              }
+
+              // Send as message (audioUrl param)
+              await sendDirectMessage(userId, '[Voice Message]', null, publicUrl, duration);
+              await loadDirectMessages(userId);
+              showToast('Success', 'Voice message sent', 'success');
+            } catch (err) {
+              console.error('Voice upload failed:', err);
+              showToast('Error', 'Failed to send voice: ' + err.message, 'error');
+            } finally {
+              dmVoiceStream?.getTracks().forEach(track => track.stop());
+              dmVoiceStream = null;
+              dmVoiceChunks = [];
+              if (dmVoiceTimerInterval) { clearInterval(dmVoiceTimerInterval); dmVoiceTimerInterval = null; }
+              dmVoiceStartTime = null;
+              voiceBtn.classList.remove('bg-red-600', 'animate-pulse');
+              voiceBtn.classList.add('bg-slate-700/80');
+              const timerDisplay = voiceBtn.parentElement?.querySelector('.voice-timer');
+              if (timerDisplay) timerDisplay.remove();
+            }
+          };
+
+          mediaRecorder.start();
+          voiceBtn.classList.add('bg-red-600', 'animate-pulse');
+          voiceBtn.classList.remove('bg-slate-700/80');
+          
+          // Setup timer display (mm:ss format above button)
+          let timerDisplay = voiceBtn.parentElement?.querySelector('.voice-timer');
+          if (!timerDisplay) {
+            timerDisplay = document.createElement('span');
+            timerDisplay.className = 'voice-timer text-xs absolute -top-8 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-2 py-1 rounded whitespace-nowrap font-mono';
+            voiceBtn.parentElement.style.position = 'relative';
+            voiceBtn.parentElement.appendChild(timerDisplay);
+          }
+          
+          // Update timer every 100ms (mm:ss format)
+          if (dmVoiceTimerInterval) clearInterval(dmVoiceTimerInterval);
+          dmVoiceTimerInterval = setInterval(() => {
+            const elapsed = Math.floor((Date.now() - dmVoiceStartTime) / 1000);
+            const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+            const ss = String(elapsed % 60).padStart(2, '0');
+            if (timerDisplay) timerDisplay.innerText = `🔴 ${mm}:${ss}`;
+          }, 100);
+          
+          showToast('Info', 'Recording... Click again to stop', 'default');
+        } catch (err) {
+          console.error('Voice record error:', err);
+          showToast('Error', 'Failed to access microphone: ' + err.message, 'error');
+          dmVoiceRecorder = null;
+          dmVoiceStream?.getTracks().forEach(track => track.stop());
+          dmVoiceStream = null;
+          if (dmVoiceTimerInterval) { clearInterval(dmVoiceTimerInterval); dmVoiceTimerInterval = null; }
+          dmVoiceStartTime = null;
+          voiceBtn.classList.remove('bg-red-600', 'animate-pulse');
+          voiceBtn.classList.add('bg-slate-700/80');
+          const timerDisplay = voiceBtn.parentElement?.querySelector('.voice-timer');
+          if (timerDisplay) timerDisplay.remove();
+        }
+      }
+
+
+      async function showDirectMessageModal(userId) {
+        try {
+          const { data: user, error } = await supabase
+            .from('profiles')
+            .select('full_name, avatar_url') // <-- PERBAIKAN: 'username' dihapus dari sini
+            .eq('id', userId)
+            .single();
+
+          if (error) throw error;
+
+          // resolve avatar URL for header (use default on error)
+          let userPublicAvatar = '/default-avatar.png';
+          try { userPublicAvatar = user.avatar_url ? await getAvatarUrl(user.avatar_url) : '/default-avatar.png'; } catch(e) { userPublicAvatar = '/default-avatar.png'; }
+
+          
+          // *** LOGIKA AVATAR BARU ***
+          const name = user.full_name || 'Anonymous';
+          const avatarHTML = (userPublicAvatar && userPublicAvatar !== '/default-avatar.png')
+              ? `<img src="${userPublicAvatar}" alt="${name}" class="w-full h-full object-cover" onerror="this.onerror=null;this.src='/default-avatar.png'">`
+              : `<div class="w-full h-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-white font-medium">
+                   ${(name || 'A')[0].toUpperCase()}
+                 </div>`;
+          // *** AKHIR LOGIKA AVATAR BARU ***
+
+
+          // *** DESAIN ULANG MODAL DM ***
+          const modalHtml = `
+            <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm" id="dmModal">
+              <div class="bg-gradient-to-br from-slate-800/90 to-slate-900/90 rounded-xl p-6 max-w-xl w-full mx-4 shadow-2xl shadow-cyan-500/10 border border-slate-700/60">
+                <div class="relative">
+                  <div class="flex items-center justify-between mb-4 pb-4 border-b border-slate-700/60">
+                    <div class="flex items-center space-x-3 flex-1">
+                      <div class="w-10 h-10 rounded-full bg-slate-900 overflow-hidden flex items-center justify-center text-white flex-shrink-0">
+                        ${avatarHTML}
+                      </div>
+                      <div>
+                        <h3 class="font-semibold text-slate-100">${name}</h3>
+                        <p class="text-xs text-slate-400/80">@${(userId || '').substring(0, 8)}</p>
+                      </div>
+                    </div>
+                    <div class="flex items-center space-x-2 flex-shrink-0">
+                      <button onclick="startCall('${userId}', '${name}', null)" 
+                              class="p-2 bg-cyan-600/80 hover:bg-cyan-500 text-white rounded-lg flex items-center shadow-lg shadow-cyan-500/20 transition-all" 
+                              title="Start voice call">
+                        <i data-lucide="phone" class="h-4 w-4"></i>
+                      </button>
+                      <button class="p-2 bg-slate-700/80 hover:bg-slate-600 text-slate-300 rounded-lg flex items-center cursor-not-allowed opacity-50" 
+                              title="Video call coming soon" 
+                              disabled>
+                        <i data-lucide="video" class="h-4 w-4"></i>
+                      </button>
+                      <button class="p-2 text-slate-400 hover:text-slate-200 transition-colors rounded-lg hover:bg-slate-700/50" 
+                              onclick="document.getElementById('dmModal').remove()"
+                              title="Close">
+                        <i data-lucide="x" class="h-5 w-5"></i>
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div id="dmMessages-${userId}" class="h-96 overflow-y-auto mb-4 space-y-3 p-4 bg-slate-900/70 rounded-lg border border-slate-700/50 shadow-inner">
+                    </div>
+                  
+                  <div class="flex space-x-2 items-end">
+                    <input type="text" 
+                           id="dmInput-${userId}"
+                           placeholder="Type your message..." 
+                           class="flex-1 bg-slate-800 text-white rounded-lg px-4 py-2 border border-slate-700/50 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
+                    <input type="file" id="dmImageInput-${userId}" accept="image/*" class="hidden" />
+                    <button onclick="document.getElementById('dmImageInput-${userId}').click()" 
+                            class="px-3 py-2 bg-slate-700/80 hover:bg-slate-600 text-white rounded-lg flex items-center transition-all" 
+                            title="Send image">
+                      <i data-lucide="image" class="h-5 w-5"></i>
+                    </button>
+                    <button id="dmVoiceBtn-${userId}" onclick="startDMVoiceRecord('${userId}')"
+                            class="px-3 py-2 bg-slate-700/80 hover:bg-slate-600 text-white rounded-lg flex items-center transition-all" 
+                            title="Send voice message">
+                      <i data-lucide="mic" class="h-5 w-5"></i>
+                    </button>
+                    <button onclick="sendDM('${userId}')"
+                            class="px-4 py-2 bg-cyan-600/90 hover:bg-cyan-500 text-white rounded-lg flex items-center shadow-lg shadow-cyan-500/20 transition-all">
+                      <i data-lucide="send" class="h-5 w-5"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+          // *** DESAIN ULANG SELESAI ***
+          
+          document.body.insertAdjacentHTML('beforeend', modalHtml);
+          lucide.createIcons();
+          
+          // Load existing messages
+          await loadDirectMessages(userId);
+          // mark messages as read for this conversation (if supported)
+          try { await markConversationRead(userId); } catch(e) { /* ignore */ }
+          // ensure conversations UI is updated if inbox is open
+          try { await refreshConversationsUI(); } catch(e) { /* ignore */ }
+          
+          // Setup image upload handler for DM
+          const imageInput = document.getElementById(`dmImageInput-${userId}`);
+          if (imageInput) {
+            imageInput.addEventListener('change', async (e) => {
+              const file = e.target.files[0];
+              if (!file) return;
+              
+              if (!file.type.startsWith('image/')) {
+                showToast('Error', 'Please select an image file', 'error');
+                return;
+              }
+              
+              if (file.size > 5 * 1024 * 1024) { // 5MB limit
+                showToast('Error', 'Image must be less than 5MB', 'error');
+                return;
+              }
+              
+              try {
+                // Upload to Supabase storage
+                const filePath = `dm-images/${userId}/${window.currentUser.id}/${Date.now()}_${file.name}`;
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                  .from('avatars')
+                  .upload(filePath, file);
+
+                if (uploadError) {
+                  console.error('Supabase storage upload error:', uploadError);
+                  throw uploadError;
+                }
+
+                // Get public URL
+                const publicRes = await supabase.storage
+                  .from('avatars')
+                  .getPublicUrl(filePath);
+                const publicUrl = publicRes?.data?.publicUrl || publicRes?.publicUrl || null;
+                if (!publicUrl) {
+                  console.error('Failed to get public URL for uploaded image', publicRes);
+                  throw new Error('Failed to obtain public URL');
+                }
+
+                // Send as message (imageUrl param)
+                await sendDirectMessage(userId, '[Image]', publicUrl);
+                await loadDirectMessages(userId);
+                showToast('Success', 'Image sent', 'success');
+              } catch (err) {
+                console.error('Image upload failed:', err);
+                showToast('Error', 'Failed to send image: ' + err.message, 'error');
+              }
+              e.target.value = ''; // Reset input
+            });
+          }
+          
+          // Setup typing indicator
+          const input = document.getElementById(`dmInput-${userId}`);
+          let typingTimeout = null;
+          const broadcastTyping = async (isTyping) => {
+            try {
+              const channel = supabase.channel(`dm-typing:${window.currentUser?.id}:${userId}`);
+              channel.send({
+                type: 'broadcast',
+                event: isTyping ? 'user_typing' : 'user_stop_typing',
+                payload: { userId: window.currentUser?.id, name: window.currentUser?.name }
+              });
+            } catch(e) { console.warn('Failed to broadcast typing:', e); }
+          };
+          
+          input.addEventListener('input', async () => {
+            if (!typingTimeout) {
+              await broadcastTyping(true);
+            }
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(async () => {
+              await broadcastTyping(false);
+              typingTimeout = null;
+            }, 1000);
+          });
+          
+          // Listen for typing events from receiver
+          const typingIndicator = document.createElement('div');
+          typingIndicator.id = `dmTyping-${userId}`;
+          typingIndicator.className = 'text-xs text-slate-400 italic px-4 py-1 min-h-5';
+          typingIndicator.style.display = 'none';
+          document.getElementById(`dmMessages-${userId}`)?.parentElement?.appendChild(typingIndicator);
+          
+          const typingChannel = supabase.channel(`dm-typing:${userId}:${window.currentUser?.id}`);
+          typingChannel
+            .on('broadcast', { event: 'user_typing' }, (payload) => {
+              if (typingIndicator) {
+                typingIndicator.textContent = 'User is typing...';
+                typingIndicator.style.display = 'block';
+              }
+            })
+            .on('broadcast', { event: 'user_stop_typing' }, () => {
+              if (typingIndicator) {
+                typingIndicator.style.display = 'none';
+              }
+            })
+            .subscribe();
+          
+          // Setup enter key handler
+          input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              sendDM(userId);
+            }
+          });
+          
+          // Focus input
+          input.focus();
+        } catch (err) {
+          console.error('Error showing DM modal:', err);
+          showToast('Error', 'Failed to open chat', 'error');
+        }
+      }
+      // Send direct message
+      async function sendDM(userId) {
+        const input = document.getElementById(`dmInput-${userId}`);
+        const content = input.value.trim();
+        
+        if (!content) return;
+        
+        // disable input & send button briefly to avoid duplicate sends
+        const sendBtn = document.querySelector(`#dmModal button[onclick="sendDM('${userId}')"]`);
+        try {
+          input.disabled = true;
+          if (sendBtn) sendBtn.disabled = true;
+          input.value = '';
+          await sendDirectMessage(userId, content);
+        } finally {
+          input.disabled = false;
+          if (sendBtn) sendBtn.disabled = false;
+        }
+        // refresh inbox/conversations list so sender sees the conversation immediately
+        try { await refreshConversationsUI(); } catch(e) { console.warn('Could not refresh conversations after send:', e); }
+      }
+
+      // Load direct messages
+      async function loadDirectMessages(userId) {
+        try {
+          // *** FIX: Cek in-memory cache dulu ***
+          // Cache ini seharusnya sudah diisi oleh getConversations() / tryFetchConversationsFallback()
+          if (directMessages[userId] && directMessages[userId].length > 0) {
+            console.debug('loadDirectMessages (FIXED): using pre-populated cache for', userId);
+            updateDirectMessageUI(userId); // Langsung render dari cache
+            return; // Selesai
+          }
+
+          // Jika cache kosong, baru lakukan fetch
+          if (hasDirectMessagesTable) {
+            // 1. Coba kueri .or()
+            const orExpr = `${dmSenderCol}.eq.${window.currentUser?.id},${dmReceiverCol}.eq.${window.currentUser?.id}`;
+            const { data, error } = await supabase
+              .from('direct_messages')
+              .select('*')
+              .or(orExpr)
+              .is('deleted_at', null)
+              .order('created_at', { ascending: true });
+
+            console.debug('loadDirectMessages (FIXED): query orExpr=', orExpr, 'rows=', Array.isArray(data) ? data.length : data, 'error=', error || null);
+
+            if (error) throw error;
+            
+            let filteredMessages = data.filter(m => 
+              (m[dmSenderCol] === userId && m[dmReceiverCol] === window.currentUser?.id) ||
+              (m[dmSenderCol] === window.currentUser?.id && m[dmReceiverCol] === userId)
+            );
+
+            // 2. *** FALLBACK: Jika kueri .or() gagal (RLS bug), coba kueri terpisah ***
+            if (filteredMessages.length === 0 && !error) {
+              console.warn('loadDirectMessages (FIXED): .or() query returned 0 rows, trying split fallback...');
+              const me = window.currentUser.id;
+              
+              // Pesan yang SAYA kirim ke DIA
+              const { data: sent, error: sentErr } = await supabase.from('direct_messages').select('*').eq(dmSenderCol, me).eq(dmReceiverCol, userId).is('deleted_at', null);
+              
+              // Pesan yang DIA kirim ke SAYA
+              const { data: recv, error: recvErr } = await supabase.from('direct_messages').select('*').eq(dmSenderCol, userId).eq(dmReceiverCol, me).is('deleted_at', null);
+
+              if (!sentErr && !recvErr) {
+                const merged = (sent || []).concat(recv || []);
+                merged.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                filteredMessages = merged;
+                console.debug('loadDirectMessages (FIXED): fallback query got rows=', merged.length);
+              }
+            }
+            // *** END FALLBACK ***
+            
+            directMessages[userId] = filteredMessages;
+
+          } else {
+            // Load from localStorage (fallback lama)
+            const localMessages = JSON.parse(localStorage.getItem('directMessages') || '{}');
+            directMessages[userId] = (localMessages[userId] || []).filter(m => !m.deleted_at);
+          }
+          
+          updateDirectMessageUI(userId);
+        } catch (err) {
+          console.error('Error loading DMs:', err);
+          showToast('Error', 'Failed to load messages', 'error');
+        }
+      }
+      
+
+      // --- Conversations / Inbox helpers ---
+      // Aggregate conversations (server if available, otherwise local cache)
+      async function getConversations() {
+        const me = window.currentUser?.id;
+        if (!me) return [];
+
+        const convMap = {};
+
+        try {
+          if (hasDirectMessagesTable) {
+            
+            // 1. Coba kueri .or() standar
+            const orExpr = `${dmSenderCol}.eq.${me},${dmReceiverCol}.eq.${me}`;
+            const { data: orData, error: orError } = await supabase
+              .from('direct_messages')
+              .select('*')
+              .or(orExpr)
+              .is('deleted_at', null)
+              .order('created_at', { ascending: true });
+
+            if (!orError && Array.isArray(orData) && orData.length > 0) {
+              // Jika sukses, proses seperti biasa
+              console.debug('getConversations (FINAL FIX): .or() query succeeded, rows=', orData.length);
+              orData.forEach(m => {
+                const other = m[dmSenderCol] === me ? m[dmReceiverCol] : m[dmSenderCol];
+                if (!convMap[other]) convMap[other] = [];
+                convMap[other].push(m);
+              });
+
+            } else {
+              // 2. Kueri .or() GAGAL (kemungkinan RLS) atau kosong. Jalankan FALLBACK.
+              console.warn('getConversations (FINAL FIX): .or() query failed or empty, running fallback queries...');
+              
+              // Ambil pesan yang SAYA TERIMA
+              const { data: recvData, error: recvErr } = await supabase
+                .from('direct_messages').select('*').eq(dmReceiverCol, me).is('deleted_at', null);
+                
+              // Ambil pesan yang SAYA KIRIM
+              const { data: sendData, error: sendErr } = await supabase
+                .from('direct_messages').select('*').eq(dmSenderCol, me).is('deleted_at', null);
+
+              if (recvErr || sendErr) {
+                 console.error('getConversations (FINAL FIX): Fallback queries failed.', recvErr, sendErr);
+              } else {
+                // Gabungkan hasil fallback
+                const merged = (recvData || []).concat(sendData || []);
+                console.debug('getConversations (FINAL FIX): Fallback queries succeeded, merged rows=', merged.length);
+                
+                merged.forEach(m => {
+                  const other = m[dmSenderCol] === me ? m[dmReceiverCol] : m[dmSenderCol];
+                  if (!convMap[other]) convMap[other] = [];
+                  // Cek duplikat sebelum push
+                  const exists = convMap[other].some(msg => msg.id === m.id);
+                  if (!exists) {
+                    convMap[other].push(m);
+                  }
+                });
+              }
+            }
+
+            // 3. (PENTING) Selalu gabungkan dengan cache in-memory (dari realtime)
+            Object.keys(directMessages || {}).forEach(otherId => {
+              if (!convMap[otherId]) convMap[otherId] = [];
+              const existingIds = new Set(convMap[otherId].map(m => m.id));
+              (directMessages[otherId] || []).forEach(m => {
+                if (m && m.id && !existingIds.has(m.id)) {
+                  convMap[otherId].push(m);
+                  existingIds.add(m.id);
+                }
+              });
+            });
+
+          } else {
+            // 4. Fallback ke localStorage jika tabel tidak ada
+            const local = JSON.parse(localStorage.getItem('directMessages') || '{}');
+            Object.keys(local).forEach(k => {
+              if (!convMap[k]) convMap[k] = [];
+              convMap[k].push(...(local[k] || []).filter(m => !m.deleted_at));
+            });
+            // Gabungkan juga cache in-memory untuk localStorage
+            Object.keys(directMessages || {}).forEach(otherId => {
+              if (!convMap[otherId]) convMap[otherId] = [];
+              const existingIds = new Set(convMap[otherId].map(m => m.id));
+              (directMessages[otherId] || []).forEach(m => {
+                if (m && m.id && !existingIds.has(m.id) && !m.deleted_at) {
+                  convMap[otherId].push(m);
+                  existingIds.add(m.id);
+                }
+              });
+            });
+          }
+        } catch (err) {
+          console.error('Error fetching conversations:', err);
+        }
+
+        // Build array dan urutkan
+        const convs = Object.entries(convMap).map(([otherId, msgs]) => {
+          if (!Array.isArray(msgs) || msgs.length === 0) return null;
+          msgs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+          const last = msgs[0];
+          const unread = msgs.filter(m => (m[dmReceiverCol] === me || m.receiver_id === me) && m.is_read === false).length; 
+          return { userId: otherId, lastMessage: last, messages: msgs, lastAt: last?.created_at || 0, unread };
+        }).filter(Boolean) // Hapus entri yang null
+          .sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt));
+
+        console.debug('getConversations (FINAL FIX): processed map into convs count=', convs.length);
+        return convs;
+      }
+
+      
+      // Render conversations list into a container element
+      async function renderConversations(containerId = 'profileConversations') {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        const hasContent = container.querySelector('.conv-item'); 
+        
+        if (!hasContent) {
+          container.innerHTML = '<div class="py-4 text-sm text-slate-400">Loading conversations...</div>';
+        }
+
+        try {
+          const convs = await getConversations();
+          if (!convs || convs.length === 0) {
+            container.innerHTML = '<div class="py-4 text-sm text-slate-400">No conversations yet</div>';
+            return;
+          }
+
+          const ids = convs.map(c => c.userId).filter(Boolean);
+          let profiles = [];
+          try {
+            
+            const { data } = await supabase.from('profiles')
+              .select('id,full_name,avatar_url')
+              .in('id', ids);
+              
+            profiles = Array.isArray(data) ? data : [];
+            
+            await Promise.all(profiles.map(async (p) => {
+              try {
+                p._publicAvatar = p.avatar_url ? await getAvatarUrl(p.avatar_url) : '/default-avatar.png';
+              } catch (e) { p._publicAvatar = '/default-avatar.png'; }
+            }));
+          } catch (e) {
+            console.warn('Could not load participant profiles for inbox:', e);
+          }
+
+          const html = convs.map(c => {
+            const prof = profiles.find(p => p.id === c.userId) || {};
+            const name = prof.full_name || c.userId.substring(0, 8); 
+            
+            // *** LOGIKA AVATAR BARU ***
+            const avatarHTML = (prof._publicAvatar && prof._publicAvatar !== '/default-avatar.png')
+                ? `<img src="${prof._publicAvatar}" alt="${sanitizeHTML(name)}" class="w-full h-full object-cover" onerror="this.onerror=null;this.src='/default-avatar.png'">`
+                : `<div class="w-full h-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-white text-lg font-bold">
+                     ${(prof.full_name || 'A')[0].toUpperCase()}
+                   </div>`;
+            // *** AKHIR LOGIKA AVATAR BARU ***
+
+            const preview = sanitizeHTML((c.lastMessage && c.lastMessage.content) ? (c.lastMessage.content.length > 80 ? c.lastMessage.content.slice(0,80) + '...' : c.lastMessage.content) : '—');
+            const time = c.lastAt ? timeAgo(c.lastAt) : '';
+            const unreadBadge = c.unread ? `<span class="ml-2 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">${c.unread}</span>` : '';
+
+            return `
+              <button data-conv-user="${sanitizeHTML(c.userId)}" class="w-full text-left flex items-center gap-3 px-3 py-2 hover:bg-slate-800/40 rounded-lg conv-item">
+                
+                <div class="w-10 h-10 rounded-full bg-slate-900 overflow-hidden flex items-center justify-center text-white flex-shrink-0">
+                  ${avatarHTML}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between">
+                    <div class="truncate font-medium text-white">${sanitizeHTML(name)}</div>
+                    <div class="text-xs text-slate-400">${sanitizeHTML(time)}${unreadBadge}</div>
+                  </div>
+                  <div class="text-sm text-slate-400 truncate">${preview}</div>
+                </div>
+              </button>
+            `;
+          }).join('');
+
+          container.innerHTML = `<div class="space-y-2">${html}</div>`;
+
+          try {
+            const totalUnread = (convs || []).reduce((s, c) => s + (c.unread || 0), 0);
+            updateInboxBadge(totalUnread);
+          } catch (e) {
+            console.warn('Could not update inbox badge after renderConversations:', e);
+          }
+
+          container.querySelectorAll('.conv-item').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+              const other = btn.dataset.convUser;
+              if (other) {
+                showDirectMessageModal(other);
+                document.getElementById('profileModal')?.remove();
+              }
+            });
+          });
+        } catch (err) {
+          console.error('Error rendering conversations:', err);
+          container.innerHTML = '<div class="py-4 text-sm text-rose-400">Failed to load conversations</div>';
+        }
+      }
+      
+      // Refresh the conversations UI if inbox modal is open
+      async function refreshConversationsUI() {
+        if (document.getElementById('profileModal')) {
+          await renderConversations('profileConversations');
+        }
+      }
+
+      // Create a floating Inbox shortcut button (bottom-right)
+      function createInboxShortcut() {
+        try {
+          // avoid duplicate
+          if (document.getElementById('inboxShortcutBtn')) return;
+          const btn = document.createElement('button');
+          btn.id = 'inboxShortcutBtn';
+          btn.title = 'Inbox';
+          
+          // *** PERBAIKAN: Mengganti <i> dengan SVG baru yang sudah diperbaiki ***
+          btn.innerHTML = `<svg class="h-5 w-5 text-white" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><g id="SVGRepo_bgCarrier" stroke-width="0"></g><g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"></g><g id="SVGRepo_iconCarrier"> <path d="M8.5 17.5L5.5 20V15.5H2.46154C2.07391 15.5 1.70217 15.346 1.42807 15.0719C1.15398 14.7978 1 14.4261 1 14.0385V2.46154C1 2.07391 1.15398 1.70217 1.42807 1.42807C1.70217 1.15398 2.07391 1 2.46154 1H18.5385C18.9261 1 19.2978 1.15398 19.5719 1.42807C19.846 1.70217 20 2.07391 20 2.46154V6.8119" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path> <path d="M5 5H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path> <path d="M5 9H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path> <path d="M17 19C19.2091 19 21 17.2091 21 15C21 12.7909 19.2091 11 17 11C14.7909 11 13 12.7909 13 15C13 17.2091 14.7909 19 17 19Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path> <path d="M22 22C21.5167 21.3959 20.7962 20.8906 19.9155 20.5384C19.0348 20.1861 18.027 20 17 20C15.973 20 14.9652 20.1861 14.0845 20.5384C13.2038 20.8906 12.4833 21.3959 12 22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path> </g></svg><span id="inboxBadge" style="display:none; position:absolute; top:-6px; right:-6px; background:#ef4444; color:#fff; font-size:11px; padding:2px 6px; border-radius:999px;">0</span>`;
+          
+          btn.style.position = 'fixed';
+          btn.style.right = '20px';
+          btn.style.bottom = '20px';
+          btn.style.width = '48px';
+          btn.style.height = '48px';
+          btn.style.borderRadius = '999px';
+          btn.style.background = '#296888f0';
+          btn.style.boxShadow = '0 6px 20px rgba(2,6,23,0.4)';
+          btn.style.zIndex = '60';
+          btn.style.border = 'none';
+          btn.style.cursor = 'pointer';
+          // Kita perlu 'flex' untuk memusatkan SVG di dalam tombol
+          btn.style.display = 'flex';
+          btn.style.alignItems = 'center';
+          btn.style.justifyContent = 'center';
+          
+          document.body.appendChild(btn);
+          // lucide.createIcons(); // Hapus baris ini karena kita tidak pakai Lucide lagi di sini
+
+          btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (!window.currentUser?.id) {
+              showToast('Info', 'Please login to view your inbox', 'info');
+              return;
+            }
+            // clear inbox badge when opening
+            const badge = document.getElementById('inboxBadge');
+            if (badge) { badge.style.display = 'none'; badge.innerText = '0'; }
+            showUserProfilePopup(window.currentUser.id);
+          });
+        } catch (err) {
+          console.error('Could not create inbox shortcut:', err);
+        }
+      }
+
+
+      // Update inbox badge: delta or set
+      function updateInboxBadge(deltaOrSet) {
+        const badge = document.getElementById('inboxBadge');
+        if (!badge) return;
+        
+        // If it's a non-negative number, SET it directly (don't add)
+        if (typeof deltaOrSet === 'number' && deltaOrSet >= 0) {
+          badge.innerText = String(deltaOrSet);
+          badge.style.display = deltaOrSet > 0 ? 'inline-block' : 'none';
+        }
+        // If it's negative, add it (delta mode)
+        else if (typeof deltaOrSet === 'number' && deltaOrSet < 0) {
+          let current = parseInt(badge.innerText || '0', 10) || 0;
+          current = Math.max(0, current + deltaOrSet);
+          badge.innerText = String(current);
+          badge.style.display = current > 0 ? 'inline-block' : 'none';
+        }
+        // If it's 'clear' string, reset to 0
+        else if (deltaOrSet === 'clear') {
+          badge.innerText = '0';
+          badge.style.display = 'none';
+        }
+      }
+
+      // Mark conversation messages as read (sets is_read=true for messages where
+      // receiver is current user and sender is otherId). No-op if DB doesn't support is_read.
+      async function markConversationRead(otherId) {
+        try {
+          const me = window.currentUser?.id;
+          if (!me || !otherId) return;
+          if (!hasDirectMessagesTable || !hasDirectMessagesIsRead) return;
+
+          // *** PERBAIKAN: Hapus 'read_at' dari objek update ***
+          const updateObj = { is_read: true }; 
+          
+          const { error } = await supabase
+            .from('direct_messages')
+            .update(updateObj)
+            .eq(dmReceiverCol, me)
+            .eq(dmSenderCol, otherId)
+            .eq('is_read', false); // Hanya update yang belum dibaca
+
+          if (error) {
+             console.warn('Could not mark conversation read:', error.message || error);
+          } else {
+             console.debug('Marked conversation with', otherId, 'as read');
+          }
+        } catch (err) {
+          console.error('Error marking conversation read:', err);
+        }
+      }
+
+      // Initialize realtime subscription for direct messages so recipients
+// receive incoming DMs immediately.
+// Initialize realtime subscription for direct messages so recipients
+// receive incoming DMs immediately.
+function initDirectMessageRealtime() {
+        try {
+          if (!hasDirectMessagesTable || !supabase) return;
+          if (dmRealtimeInitialized) {
+            console.debug('initDirectMessageRealtime: already initialized, skipping');
+            return;
+          }
+
+          console.debug('initDirectMessageRealtime: starting subscription on direct_messages');
+          // Subscribe to INSERT, UPDATE, DELETE events on direct_messages
+          const subscription = supabase
+            .channel('public:direct_messages')
+            .on('postgres_changes', { 
+              event: '*', // <-- Listen for INSERT, UPDATE, DELETE
+              schema: 'public', 
+              table: 'direct_messages' 
+            },            // *** PERBAIKAN 1: Buat fungsi ini jadi 'async' ***
+            async (payload) => {
+              try {
+                console.debug('initDirectMessageRealtime: payload received ->', payload);
+                const msg = payload.new || payload.old;
+                const me = window.currentUser?.id;
+                if (!me) return;
+
+                const receiverVal = msg[dmReceiverCol];
+                const senderVal = msg[dmSenderCol];
+                if (typeof receiverVal === 'undefined' || typeof senderVal === 'undefined') {
+                  console.warn('Realtime DM payload missing expected columns - payload:', msg, 'dmSenderCol:', dmSenderCol, 'dmReceiverCol:', dmReceiverCol);
+                }
+
+                // Handle soft-delete: when message is updated with deleted_at timestamp
+                if (payload.eventType === 'UPDATE' && msg.deleted_at) {
+                  console.debug('Message soft-deleted:', msg.id);
+                  const other = senderVal === me ? receiverVal : senderVal;
+                  if (directMessages[other]) {
+                    directMessages[other] = directMessages[other].filter(m => m.id !== msg.id);
+                    if (document.getElementById(`dmMessages-${other}`)) {
+                      updateDirectMessageUI(other);
+                    }
+                  }
+                  return;
+                }
+
+                // If I am the receiver, add to cache and notify
+                if (receiverVal === me) {
+
+                    // =============================================
+                    // == [MODIFIKASI SAYA] DETEKSI PANGGILAN MASUK
+                    // =============================================
+                    // Robust detection for call offers (handle variations)
+                    const contentStr = (payload.new && payload.new.content) || (payload.old && payload.old.content) || msg.content;
+                    if (contentStr && contentStr.includes('__VOICE_CALL_OFFER__:')) {
+                        const parts = contentStr.split('__VOICE_CALL_OFFER__:');
+                        const callRoomId = (parts[1] || '').trim().replace(/^:/, '');
+                        const callerId = senderVal;
+                        console.log(`Menerima panggilan dari ${callerId} di room ${callRoomId}`);
+                        try {
+                          receiveCall(callerId, callRoomId);
+                        } catch (e) {
+                          console.error('Error invoking receiveCall:', e);
+                        }
+                        // Hentikan pemrosesan agar DM ini tidak muncul di chat
+                        return;
+                    }
+                    // =============================================
+                    // == AKHIR MODIFIKASI SAYA
+                    // =============================================
+                    
+                  // Jika bukan panggilan, proses sebagai pesan biasa (kode asli Anda)
+                  const other = senderVal;
+                  if (!directMessages[other]) directMessages[other] = [];
+                  // avoid duplicates
+                  if (!directMessages[other].some(m => m.id === msg.id)) {
+                    directMessages[other].push(msg);
+                  } else {
+                    console.debug('Realtime: duplicate message ignored for', msg.id);
+                  }
+                  // ensure uniqueness map
+                  directMessages[other] = Array.from(new Map((directMessages[other] || []).map(m => [m.id, m])).values());
+
+                  // If DM modal for this sender is open, reload messages and mark read
+                  if (document.getElementById(`dmMessages-${other}`)) {
+                    loadDirectMessages(other);
+                    if (hasDirectMessagesIsRead) markConversationRead(other);
+                  }
+
+                  // refresh inbox if open
+                  refreshConversationsUI().catch(()=>{});
+
+                  // update inbox badge: calculate actual unread count instead of incrementing
+                  try {
+                    const convs = await getConversations();
+                    const actualUnread = convs.reduce((s, c) => s + (c.unread || 0), 0);
+                    updateInboxBadge(actualUnread);
+                  } catch(e) { console.warn('Failed to update badge with actual count:', e); }                  // *** PERBAIKAN 2: Ambil nama profil sebelum tampilkan toast ***
+                  let senderName = senderVal.substring(0, 8); // Default ke ID yang dipotong
+                  try {
+                    const { data: profile, error } = await supabase
+                      .from('profiles')
+                      .select('full_name')
+                      .eq('id', senderVal)
+                      .single();
+                      
+                    if (profile && profile.full_name) {
+                      senderName = profile.full_name; // Gunakan nama lengkap jika ada
+                    }
+                  } catch (profileError) {
+                  console.warn('Could not fetch sender profile for toast:', profileError);
+                  }
+                  
+                  // Tampilkan toast dengan nama
+                  showToast('Info', `New message from ${senderName}`, 'info');
+                }
+              } catch (e) {
+                console.error('Realtime DM handler error:', e);
+         }
+            })
+            .subscribe();
+
+          // store channel reference to unsubscribe later if needed
+          supabaseChannels.push(subscription);
+          dmRealtimeInitialized = true;
+        } catch (err) {
+          console.error('Failed to init direct message realtime:', err);
+        }
+      }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+      // Polling fallback: periodically refresh conversations if realtime or SELECT fails
+      function startDirectMessagePoll(intervalMs = 8000) {
+        try {
+          if (dmPollInterval) return; // already running
+          dmPollInterval = setInterval(async () => {
+            try {
+              if (!window.currentUser?.id) return;
+              // try to refresh conversations and UI
+              const convs = await getConversations();
+              // if there are conversations, ensure UI is updated
+              if (convs && convs.length > 0) {
+                await refreshConversationsUI();
+                const totalUnread = convs.reduce((s,c) => s + (c.unread || 0), 0);
+                if (totalUnread > 0) updateInboxBadge(totalUnread);
+              } else {
+                // if no convs found, try an aggressive fallback query once
+                await tryFetchConversationsFallback();
+              }
+            } catch (e) {
+              // ignore transient poll errors
+              // console.warn('DM poll iteration error:', e);
+            }
+          }, intervalMs);
+          console.debug('startDirectMessagePoll: started with intervalMs=', intervalMs);
+        } catch (err) {
+          console.error('startDirectMessagePoll failed:', err);
+        }
+      }
+
+      function stopDirectMessagePoll() {
+        if (dmPollInterval) {
+          clearInterval(dmPollInterval);
+          dmPollInterval = null;
+        }
+      }
+
+      // Aggressive fallback: run separate queries for messages where 'me' is receiver or sender
+      // This helps diagnose when .or() queries or policies block combined queries.
+      async function tryFetchConversationsFallback() {
+        try {
+          if (!hasDirectMessagesTable || !window.currentUser?.id) return;
+          const me = window.currentUser.id;
+
+          // try receiver query
+          const recvQ = await supabase.from('direct_messages').select('*').eq(dmReceiverCol, me).order('created_at', { ascending: true });
+          console.debug('tryFetchConversationsFallback: receiver query rows=', Array.isArray(recvQ.data) ? recvQ.data.length : recvQ.data, 'error=', recvQ.error || null);
+
+          // try sender query
+          const sendQ = await supabase.from('direct_messages').select('*').eq(dmSenderCol, me).order('created_at', { ascending: true });
+          console.debug('tryFetchConversationsFallback: sender query rows=', Array.isArray(sendQ.data) ? sendQ.data.length : sendQ.data, 'error=', sendQ.error || null);
+
+          // Merge results into directMessages cache so inbox can render
+          const merged = [];
+          if (Array.isArray(recvQ.data)) merged.push(...recvQ.data);
+          if (Array.isArray(sendQ.data)) merged.push(...sendQ.data);
+
+          if (merged.length > 0) {
+            // build convMap as getConversations would
+            merged.forEach(m => {
+              const other = m[dmSenderCol] === me ? m[dmReceiverCol] : m[dmSenderCol];
+              if (!directMessages[other]) directMessages[other] = [];
+              directMessages[other].push(m);
+            });
+            await refreshConversationsUI();
+          }
+        } catch (err) {
+          console.error('tryFetchConversationsFallback failed:', err);
+        }
+      }
+
+      // Update direct message UI
+      // Delete direct message
+      async function deleteDirectMessage(userId, messageId, deleteMode = 'self') {
+        try {
+          // Try to fetch the server row so we can also remove stored assets if any
+          let msgRow = null;
+          if (hasDirectMessagesTable && messageId && messageId.indexOf('local-') === -1) {
+            try {
+              const { data, error } = await supabase
+                .from('direct_messages')
+                .select(`${dmSenderCol}, ${dmReceiverCol}, image_url, audio_url`)
+                .eq('id', messageId)
+                .single();
+              if (!error && data) msgRow = data;
+            } catch (e) {
+              console.warn('Could not fetch message row before delete:', e);
+            }
+          }
+
+          // Helper: attempt to remove an asset from Supabase storage by parsing public URL
+          async function tryRemoveUrl(publicUrl) {
+            if (!publicUrl) return;
+            try {
+              const parsed = new URL(publicUrl);
+              // look for '/object/public/{bucket}/{path...}' pattern
+              const match = parsed.pathname.match(/object\/public\/(.*?)\/(.*)/) || parsed.pathname.match(/storage\/v1\/object\/public\/(.*?)\/(.*)/);
+              let bucket = null; let path = null;
+              if (match) { bucket = match[1]; path = match[2]; }
+              else {
+                const parts = publicUrl.split('/object/public/');
+                if (parts.length === 2) {
+                  const rest = parts[1];
+                  const p = rest.split('/');
+                  bucket = p.shift();
+                  path = p.join('/');
+                }
+              }
+              if (bucket && path) {
+                // decode in case encoded
+                const cleanPath = decodeURIComponent(path);
+                const { error } = await supabase.storage.from(bucket).remove([cleanPath]);
+                if (error) console.warn('Storage removal error', bucket, cleanPath, error);
+              } else {
+                console.debug('Cannot infer storage path from URL, skipping removal:', publicUrl);
+              }
+            } catch (e) {
+              console.warn('tryRemoveUrl error', e);
+            }
+          }
+
+          if (deleteMode === 'self') {
+            // Remove from local cache immediately
+            if (directMessages[userId]) {
+              directMessages[userId] = directMessages[userId].filter(m => m.id !== messageId);
+              updateDirectMessageUI(userId);
+            }
+
+            // If there is a server record and current user is the sender, remove storage assets and delete row on server.
+            if (msgRow && msgRow[dmSenderCol] === window.currentUser.id) {
+              await tryRemoveUrl(msgRow.image_url).catch(()=>{});
+              await tryRemoveUrl(msgRow.audio_url).catch(()=>{});
+              const { error } = await supabase
+                .from('direct_messages')
+                .delete()
+                .eq('id', messageId);
+              if (error) throw error;
+              showToast('Success', 'Message removed from server and local', 'success');
+            } else {
+              showToast('Success', 'Message removed locally', 'success');
+            }
+
+          } else if (deleteMode === 'all') {
+            // For everyone: ALWAYS send soft-delete to server (mark deleted_at) regardless of msgRow
+            // This ensures realtime UPDATE event is triggered for all clients
+            if (hasDirectMessagesTable && messageId && messageId.indexOf('local-') === -1) {
+              // Remove assets from storage if we can identify them
+              if (msgRow) {
+                await tryRemoveUrl(msgRow.image_url).catch(()=>{});
+                await tryRemoveUrl(msgRow.audio_url).catch(()=>{});
+              }
+              
+              // Send soft-delete update to DB (this will trigger realtime UPDATE for all subscribers)
+              console.debug('deleteDirectMessage: sending soft-delete to server for messageId=', messageId);
+              const { error } = await supabase
+                .from('direct_messages')
+                .update({ deleted_at: new Date().toISOString() })
+                .eq('id', messageId);
+              
+              if (error) {
+                console.error('Soft-delete update error:', error);
+                throw error;
+              }
+              console.debug('Soft-delete sent successfully, messageId=', messageId);
+            }
+
+            // Ensure local cache is updated immediately so sender sees deletion right away
+            if (directMessages[userId]) {
+              directMessages[userId] = directMessages[userId].filter(m => m.id !== messageId);
+              updateDirectMessageUI(userId);
+            }
+            showToast('Success', 'Message deleted for everyone', 'success');
+          }
+        } catch (err) {
+          console.error('Delete message error:', err);
+          showToast('Error', 'Failed to delete message', 'error');
+        }
+      }
+
+      function updateDirectMessageUI(userId) {
+        console.debug('updateDirectMessageUI for', userId, 'messagesCount=', (directMessages[userId] || []).length);
+        const container = document.getElementById(`dmMessages-${userId}`);
+        if (!container) return;
+        
+        const messages = directMessages[userId] || [];
+        container.innerHTML = messages.map(msg => {
+          const isSender = msg.sender_id === window.currentUser?.id;
+          const isMedia = !!(msg.image_url || msg.audio_url);
+          let contentHtml = msg.content || '[Empty]';
+
+          // Show image if available (no background so it looks like WhatsApp)
+          if (msg.image_url) {
+            contentHtml = `
+              <div class="dm-image-wrap">
+                <img src="${msg.image_url}" alt="Image" class="max-w-xs rounded-lg cursor-pointer" data-src="${msg.image_url}" />
+              </div>
+            `;
+          }
+
+          // Show audio player if available (clean, no colored background)
+          if (msg.audio_url) {
+            const duration = msg.duration ? Math.round(msg.duration) + 's' : '';
+            contentHtml = `
+              <div class="flex items-center space-x-3">
+                <button class="dm-audio-play p-2 rounded-full border border-slate-600 text-slate-100" data-src="${msg.audio_url}">
+                  <i data-lucide="play" class="h-4 w-4"></i>
+                </button>
+                <div class="dm-audio-info text-xs text-slate-200 rounded-full px-3 py-2">
+                  <span class="dm-audio-duration">${duration}</span>
+                </div>
+              </div>
+            `;
+          }
+
+          const bubbleClass = isSender
+            ? (isMedia ? 'text-white' : 'bg-cyan-600 text-white')
+            : (isMedia ? 'text-slate-100' : 'bg-slate-700 text-slate-100');
+
+          const bubblePadding = isMedia ? 'p-0' : 'px-4 py-2';
+
+          return `
+            <div class="flex ${isSender ? 'justify-end' : 'justify-start'} group">
+              <div class="${bubbleClass} ${bubblePadding} rounded-lg ${isMedia ? 'overflow-hidden' : ''} max-w-[80%] break-words shadow-md hover:shadow-lg transition-shadow">
+                ${contentHtml}
+                <div class="text-xs opacity-75 mt-2 ${isSender ? 'text-cyan-100' : 'text-slate-300'}">
+                  ${new Date(msg.created_at).toLocaleTimeString()}
+                </div>
+              </div>
+              ${isSender ? `
+                <div class="flex items-center ml-2 space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onclick="deleteDirectMessage('${userId}', '${msg.id}', 'self')" class="p-1 hover:bg-slate-600/50 rounded text-xs text-slate-400 hover:text-slate-200" title="Delete for me">
+                    <i data-lucide="trash-2" class="h-3 w-3"></i>
+                  </button>
+                  <button onclick="deleteDirectMessage('${userId}', '${msg.id}', 'all')" class="p-1 hover:bg-slate-600/50 rounded text-xs text-slate-400 hover:text-slate-200" title="Delete for everyone">
+                    <i data-lucide="trash" class="h-3 w-3"></i>
+                  </button>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('');
+        
+        container.scrollTop = container.scrollHeight;
+        lucide.createIcons();
+      }
+
+      async function appendMessage(msg, updateOnly = false) {
+        const chatMessages = document.getElementById("chatMessages");
+        if (!chatMessages) {
+          console.error("Elemen chatMessages tidak ditemukan");
+          return;
+        }
+
+        const existingMessage = document.querySelector(`[data-message-id="${msg.id}"]`);
+        if (existingMessage && !updateOnly) {
+          return;
+        }
+
+        if (!isValidUuid(msg.id) && !msg.id.startsWith("temp-")) {
+          console.error(`Invalid message ID: ${msg.id}`);
+          showToast("Error", "Invalid message ID", "destructive");
+          return;
+        }
+
+        const isMine = msg.user_id === window.currentUser?.id;
+        
+        // Hanya proses pesan yang belum dibaca dan bukan milik kita
+        if (!isMine && !msg.is_read && !updateOnly) {
+          // Buat IntersectionObserver untuk mendeteksi ketika pesan muncul di viewport
+          const observer = new IntersectionObserver(async (entries) => {
+            if (entries[0].isIntersecting) {
+              try {
+                console.log('Marking message as read:', msg.id);
+                const { data, error } = await supabase
+                  .from('messages')
+                  .update({ 
+                    is_read: true, 
+                    read_at: new Date().toISOString(),
+                    status: 'Read'
+                  })
+                  .eq('id', msg.id)
+                  .select();
+
+                if (error) {
+                  console.error('Error updating message read status:', error);
+                } else {
+                  msg.is_read = true;
+                  msg.status = 'Read';
+                  msg.read_at = new Date().toISOString();
+                  
+                  // Update UI untuk menampilkan status read
+                  const statusElement = document.querySelector(`[data-message-id="${msg.id}"] .message-status`);
+                  if (statusElement) {
+                    statusElement.innerHTML = `
+                      <i data-lucide="check-check" class="h-3 w-3 mr-1 text-emerald-400"></i>
+                      <span>Read ${new Date().toLocaleTimeString()}</span>
+                    `;
+                    lucide.createIcons();
+                  }
+                  
+                  // Broadcast ke pengirim bahwa pesan telah dibaca
+                  const broadcastChannel = supabase.channel(`message-${msg.id}`);
+                  await broadcastChannel.subscribe(async (status) => {
+                    if (status === 'SUBSCRIBED') {
+                      await broadcastChannel.send({
+                        type: 'broadcast',
+                        event: 'message_read',
+                        payload: {
+                          message_id: msg.id,
+                          read_by: window.currentUser?.id,
+                          read_at: new Date().toISOString()
+                        }
+                      });
+                    }
+                  });
+                }
+              } catch (error) {
+                console.error('Error marking message as read:', error);
+              } finally {
+                // Hentikan observasi setelah pesan ditandai sebagai dibaca
+                observer.disconnect();
+              }
+            }
+          }, {
+            threshold: 0.5 // Pesan dianggap terlihat jika 50% terlihat di viewport
+          });
+          
+          // Mulai observasi setelah pesan ditambahkan ke DOM
+          setTimeout(() => {
+            const messageElement = document.querySelector(`[data-message-id="${msg.id}"]`);
+            if (messageElement) {
+              observer.observe(messageElement);
+            }
+          }, 100);
+        }
+        const messageEl = existingMessage || document.createElement("div");
+        messageEl.className = `flex mb-4 last:mb-0 ${isMine ? "flex-row-reverse" : ""}`;
+        messageEl.setAttribute("data-message-id", msg.id);
+
+        if (existingMessage) {
+          const oldButtons = existingMessage.querySelectorAll('.play-pause-btn, .like-btn, .reply-btn, .report-btn');
+          oldButtons.forEach(btn => btn.replaceWith(btn.cloneNode(true)));
+        }
+
+        let avatarContent = msg.full_name ? msg.full_name[0].toUpperCase() : 'A';
+        let avatarColor = "blue";
+        if (isMine) avatarColor = "cyan";
+        if (msg.full_name?.includes("Sarah")) avatarColor = "purple";
+
+        if (msg.avatar_url) {
+          try {
+            const { data: avatarData } = await supabase.storage
+              .from("avatars")
+              .getPublicUrl(msg.avatar_url);
+            if (avatarData?.publicUrl) {
+              avatarContent = `<img src="${avatarData.publicUrl}" class="h-8 w-8 rounded-full object-cover" alt="Avatar" />`;
+            }
+          } catch (error) {
+            console.error("Gagal ambil avatar:", error);
+          }
+        }
+
+        const timestamp = new Date(msg.created_at).toLocaleString("id-ID", {
+          hour: "numeric",
+          minute: "numeric",
+          hour12: true,
+        });
+
+        // Sanitasi konten terlebih dahulu
+        let sanitizedContent = sanitizeHTML(msg.content);
+        const highlightedContent = highlightMentions(sanitizedContent);
+
+        // Buat elemen sementara untuk memproses konten
+        const tempDiv = document.createElement("div");
+        tempDiv.innerHTML = highlightedContent;
+
+        // Ganti placeholder __BAD_WORD__ dengan elemen SVG
+        const placeholderRegex = /__BAD_WORD__/g;
+        if (placeholderRegex.test(tempDiv.innerHTML)) {
+          const svgElement = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          svgElement.setAttribute("viewBox", "0 0 64 64");
+          svgElement.setAttribute("stroke-width", "3");
+          svgElement.setAttribute("stroke", "#ff0000");
+          svgElement.setAttribute("fill", "none");
+          svgElement.style.width = "1em";
+          svgElement.style.height = "1em";
+          svgElement.style.verticalAlign = "middle";
+          svgElement.style.display = "inline-block";
+
+          const g1 = document.createElementNS("http://www.w3.org/2000/svg", "g");
+          g1.setAttribute("id", "SVGRepo_bgCarrier");
+          g1.setAttribute("stroke-width", "0");
+          svgElement.appendChild(g1);
+
+          const g2 = document.createElementNS("http://www.w3.org/2000/svg", "g");
+          g2.setAttribute("id", "SVGRepo_tracerCarrier");
+          g2.setAttribute("stroke-linecap", "round");
+          g2.setAttribute("stroke-linejoin", "round");
+          svgElement.appendChild(g2);
+
+          const g3 = document.createElementNS("http://www.w3.org/2000/svg", "g");
+          g3.setAttribute("id", "SVGRepo_iconCarrier");
+          const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          circle.setAttribute("cx", "32");
+          circle.setAttribute("cy", "32");
+          circle.setAttribute("r", "25.3");
+          g3.appendChild(circle);
+          const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          line.setAttribute("x1", "49.89");
+          line.setAttribute("y1", "49.89");
+          line.setAttribute("x2", "14.11");
+          line.setAttribute("y2", "14.11");
+          g3.appendChild(line);
+          g2.appendChild(g3);
+
+          const spanElement = document.createElement("span");
+          spanElement.className = "bad-word-icon";
+          spanElement.appendChild(svgElement);
+
+          // Ganti semua placeholder dengan elemen SVG
+          const walker = document.createTreeWalker(tempDiv, NodeFilter.SHOW_TEXT, null, false);
+          let node;
+          while ((node = walker.nextNode())) {
+            if (node.nodeValue.includes("__BAD_WORD__")) {
+              const parts = node.nodeValue.split(/(__BAD_WORD__)/);
+              const fragment = document.createDocumentFragment();
+              parts.forEach(part => {
+                if (part === "__BAD_WORD__") {
+                  fragment.appendChild(spanElement.cloneNode(true));
+                } else {
+                  fragment.appendChild(document.createTextNode(part));
+                }
+              });
+              node.parentNode.replaceChild(fragment, node);
+            }
+          }
+        }
+
+        const finalContent = tempDiv.innerHTML;
+        const sanitizedFullName = sanitizeHTML(msg.full_name || "Anonim");
+        const isMentioned = Array.isArray(msg.mentions) && msg.mentions.includes(window.currentUser?.id);
+
+        const isAtBottom = isScrolledToBottom(chatMessages);
+
+    messageEl.innerHTML = `
+    <div class="flex-shrink-0 ${isMine ? "ml-3" : "mr-3"}" data-user-id="${sanitizeHTML(msg.user_id || '')}" style="cursor: pointer;">
+      <div class="h-8 w-8 rounded-full bg-gradient-to-br from-${avatarColor}-500/20 to-${avatarColor}-600/20 border border-${avatarColor}-500/30 flex items-center justify-center shadow-sm">
+        ${avatarContent}
+      </div>
+    </div>
+    <div class="flex-1 min-w-0 ${isMine ? "text-right" : ""}">
+      <div class="flex items-baseline mb-1 ${isMine ? "justify-end" : ""}">
+        <div class="text-xs ${isMine ? "text-slate-500 flex items-center mr-2" : "font-medium text-" + avatarColor + "-400 mr-2"}">
+          ${isMine ? `<i data-lucide="clock" class="h-3 w-3 mr-1"></i><span>${timestamp}</span>` : `<span class=\"user-name\" data-user-id=\"${sanitizeHTML(msg.user_id || '')}\" style=\"cursor:pointer\">${sanitizedFullName}</span>`}
+        </div>
+        ${isMine ? `<div class="text-xs font-medium text-cyan-400">You</div>` : `<div class="text-xs text-slate-500 flex items-center"><i data-lucide="clock" class="h-3 w-3 mr-1"></i><span>${timestamp}</span></div>`}
+      </div>
+      <div class="text-sm text-slate-300 ${isMine ? "bg-gradient-to-r from-cyan-600/20 to-blue-600/20 border border-cyan-500/30 inline-block" : "bg-slate-800/50 border border-slate-700/30"} rounded-lg p-3 ${isMentioned ? "border-cyan-500/50" : ""}">
+        ${finalContent}
+        ${msg.edited_at ? `<div class="text-xs opacity-60 mt-1 italic">(edited)</div>` : ''}
+      </div>
+  `;
+
+        if (msg.image_url) {
+          const imgContainer = document.createElement("div");
+          imgContainer.className = "grid grid-cols-2 gap-2 mt-2";
+          imgContainer.innerHTML = `
+            <div class="bg-slate-800/70 border border-slate-700/40 rounded-lg overflow-hidden cursor-pointer hover:border-cyan-500/40 transition-all duration-200">
+                <img src="${msg.image_url}" alt="Image" class="max-w-[200px] h-auto">
+            </div>
+        `;
+          messageEl.querySelector(".text-sm").appendChild(imgContainer);
+        }
+
+        if (msg.audio_url) {
+          const voiceContainer = document.createElement("div");
+          voiceContainer.className = "voice-message-container mt-2";
+          const duration = msg.duration || Math.floor(Math.random() * 30) + 5;
+          const minutes = Math.floor(duration / 60);
+          const seconds = duration % 60;
+
+          voiceContainer.innerHTML = `
+            <div class="voice-message ${isMine ? 'bg-gradient-to-r from-cyan-600/20 to-blue-600/20 border border-cyan-500/30' : 'bg-slate-800/50 border border-slate-700/30'} rounded-lg p-2 flex items-center">
+                <button class="play-pause-btn p-2 bg-${isMine ? 'cyan' : 'slate'}-500/20 rounded-full">
+                    <svg class="play-icon" width="16" height="16" viewBox="0 0 24 24">
+                        <path fill="currentColor" d="M8 5v14l11-7z"/>
+                    </svg>
+                    <svg class="pause-icon" width="16" height="16" viewBox="0 0 24 24" style="display:none">
+                        <path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                    </svg>
+                </button>
+                <div class="waveform-container flex-1 mx-2">
+                    <div class="waveform h-6 bg-slate-700/50 rounded-full overflow-hidden">
+                        <div class="progress h-full bg-${isMine ? 'cyan' : 'blue'}-500/50" style="width: 0%"></div>
+                    </div>
+                </div>
+                <span class="duration text-xs text-slate-400">${minutes}:${seconds.toString().padStart(2, '0')}</span>
+            </div>
+            <audio src="${msg.audio_url}" preload="none"></audio>
+        `;
+          messageEl.querySelector(".text-sm").appendChild(voiceContainer);
+
+          const playBtn = voiceContainer.querySelector('.play-pause-btn');
+          const audio = voiceContainer.querySelector('audio');
+          const playIcon = voiceContainer.querySelector('.play-icon');
+          const pauseIcon = voiceContainer.querySelector('.pause-icon');
+          const progress = voiceContainer.querySelector('.progress');
+
+          if (playBtn && audio && playIcon && pauseIcon && progress) {
+            playBtn.addEventListener('click', () => {
+              if (audio.paused) {
+                audio.play();
+                playIcon.style.display = 'none';
+                pauseIcon.style.display = 'block';
+                const startTime = Date.now();
+                const animate = () => {
+                  const elapsed = (Date.now() - startTime) / 1000;
+                  const percentage = Math.min((elapsed / duration) * 100, 100);
+                  progress.style.width = `${percentage}%`;
+                  if (!audio.paused && percentage < 100) {
+                    requestAnimationFrame(animate);
+                  }
+                };
+                animate();
+              } else {
+                audio.pause();
+                playIcon.style.display = 'block';
+                pauseIcon.style.display = 'none';
+              }
+            });
+
+            audio.addEventListener('ended', () => {
+              playIcon.style.display = 'block';
+              pauseIcon.style.display = 'none';
+              progress.style.width = '0%';
+            });
+
+            audio.addEventListener('pause', () => {
+              playIcon.style.display = 'block';
+              pauseIcon.style.display = 'none';
+            });
+          }
+        }
+
+        
+  const actions = document.createElement("div");
+  actions.className = `flex items-center mt-2 space-x-3 ${isMine ? "justify-end" : ""}`;
+        const likes = normalizeLikes(msg.likes);
+  // Build actions HTML: likes + (three-dot menu for owner) or reply/report for others
+  actions.innerHTML = `
+        <div class="like-container flex space-x-2">
+            <button class="like-btn like-thumbs-up text-xs text-slate-400 hover:text-cyan-400 flex items-center" data-message-id="${msg.id}" data-type="thumbsUp">
+                <i data-lucide="thumbs-up" class="h-3 w-3 mr-1"></i>
+                <span>${getLikesCount(likes, "thumbsUp")}</span>
+            </button>
+            <button class="like-btn like-heart text-xs text-slate-400 hover:text-red-400 flex items-center" data-message-id="${msg.id}" data-type="heart">
+                ❤️<span class="ml-1">${getLikesCount(likes, "heart")}</span>
+            </button>
+            <button class="like-btn like-laugh text-xs text-slate-400 hover:text-yellow-400 flex items-center" data-message-id="${msg.id}" data-type="laugh">
+                😆<span class="ml-1">${getLikesCount(likes, "laugh")}</span>
+            </button>
+            <button class="like-btn like-wow text-xs text-slate-400 hover:text-indigo-400 flex items-center" data-message-id="${msg.id}" data-type="wow">
+                😮<span class="ml-1">${getLikesCount(likes, "wow")}</span>
+            </button>
+            <button class="like-btn like-sad text-xs text-slate-400 hover:text-blue-400 flex items-center" data-message-id="${msg.id}" data-type="sad">
+                😢<span class="ml-1">${getLikesCount(likes, "sad")}</span>
+            </button>
+            <button class="like-btn like-angry text-xs text-slate-400 hover:text-orange-400 flex items-center" data-message-id="${msg.id}" data-type="angry">
+                😡<span class="ml-1">${getLikesCount(likes, "angry")}</span>
+            </button>
+            <button class="like-btn like-love text-xs text-slate-400 hover:text-pink-400 flex items-center" data-message-id="${msg.id}" data-type="love">
+                🥰<span class="ml-1">${getLikesCount(likes, "love")}</span>
+            </button>
+        </div>
+        ${!isMine ? `
+        <button class="reply-btn text-xs text-slate-400 hover:text-amber-400 flex items-center" data-message-id="${msg.id}">
+            <i data-lucide="message-square" class="h-3 w-3 mr-1"></i>
+            <span>Reply</span>
+        </button>
+        <button class="report-btn text-xs text-slate-400 hover:text-rose-400 flex items-center" data-message-id="${msg.id}">
+            <i data-lucide="flag" class="h-3 w-3 mr-1"></i>
+            <span>Report</span>
+        </button>` : `
+        <div class="relative">
+          <button class="menu-btn text-xs text-slate-400 hover:text-cyan-300 flex items-center" aria-haspopup="true" aria-expanded="false" title="Message menu">
+            <i data-lucide="more-vertical" class="h-4 w-4"></i>
+          </button>
+          <div class="menu-dropdown hidden absolute right-0 mt-2 w-44 bg-slate-800 border border-slate-700 rounded shadow-lg z-50">
+            <button class="menu-item edit-item w-full text-left px-3 py-2 text-sm hover:bg-slate-700" ${canEditMessage(msg) ? '' : 'disabled'}>Edit</button>
+            <button class="menu-item delete-me-item w-full text-left px-3 py-2 text-sm hover:bg-slate-700">Delete for me</button>
+            <button class="menu-item delete-all-item w-full text-left px-3 py-2 text-sm hover:bg-slate-700" ${canDeleteForEveryone(msg) ? '' : 'disabled'}>Delete for everyone</button>
+          </div>
+          <span class="text-xs text-slate-500 flex items-center ml-2 message-status" data-message-id="${msg.id}">
+            ${msg.is_read ? 
+              `<i data-lucide="check-check" class="h-3 w-3 mr-1 text-emerald-400"></i>
+               <span>Read ${msg.read_at ? new Date(msg.read_at).toLocaleTimeString() : ''}</span>` : 
+              `<i data-lucide="check" class="h-3 w-3 mr-1 text-emerald-400"></i>
+               <span>Delivered</span>`
+            }
+          </span>
+        </div>`}
+    `;
+        messageEl.querySelector(".flex-1").appendChild(actions);
+
+        const likeButtons = actions.querySelectorAll('.like-btn');
+        likeButtons.forEach(button => {
+          button.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const messageId = button.dataset.messageId;
+            const likeType = button.dataset.type;
+
+            // Jika pengguna tidak login, tampilkan pesan dan hentikan
+            if (!window.currentUser?.id || !isValidUuid(window.currentUser.id)) {
+              showToast("Error”, ”Please login to like", "destructive");
+              return;
+            }
+
+            if (!isValidUuid(messageId)) {
+              console.error(`Invalid message ID: ${messageId}`);
+              showToast("Error”, ”Invalid message ID", "destructive");
+              return;
+            }
+
+            let likes = normalizeLikes(msg.likes);
+            const userLike = likes.find(like => like.user_id === window.currentUser.id);
+
+            if (userLike) {
+              if (userLike.type === likeType) {
+                likes = likes.filter(like => like.user_id !== window.currentUser.id);
+              } else {
+                likes = likes.filter(like => like.user_id !== window.currentUser.id);
+                likes.push({ type: likeType, user_id: window.currentUser.id });
+              }
+            } else {
+              likes.push({ type: likeType, user_id: window.currentUser.id });
+            }
+
+            const { error } = await supabase.from("messages").update({ likes }).eq("id", messageId);
+            if (error) {
+              console.error("Gagal menyimpan like ke Supabase:", error);
+              showToast("Error”, ”Failed to save like: " + error.message, "destructive");
+              return;
+            }
+
+            const index = messagesList.findIndex(m => m.id === messageId);
+            if (index !== -1) {
+              messagesList[index].likes = likes;
+              await appendMessage(messagesList[index], true);
+            }
+          });
+        });
+
+        if (!isMine) {
+          const replyBtn = actions.querySelector('.reply-btn');
+          if (replyBtn) {
+            const replyHandler = () => {
+              if (!window.currentUser?.id) {
+                showToast("Error”, ”Please login to reply to the message", "destructive");
+                return;
+              }
+              const chatInput = document.getElementById("chatInput");
+              chatInput.value = `Replying to ${msg.full_name}: ${msg.content}\n`;
+              chatInput.focus();
+            };
+            replyBtn.addEventListener('click', replyHandler);
+            eventListeners.push({ element: replyBtn, event: "click", handler: replyHandler });
+          }
+
+          const reportBtn = actions.querySelector('.report-btn');
+          if (reportBtn) {
+            const reportHandler = () => {
+              if (!window.currentUser?.id) {
+                showToast("Error", "Please login to report messages", "destructive");
+                return;
+              }
+              const popup = document.createElement("div");
+              popup.className = "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50";
+              popup.innerHTML = `
+                    <div class="bg-slate-800 p-4 rounded-lg shadow-lg w-80">
+                        <h3 class="text-lg font-semibold text-white mb-2">Report Message</h3>
+                        <textarea id="reportReason" class="w-full h-24 p-2 bg-slate-700 text-white rounded mb-4" placeholder="Enter the reason for reporting...."></textarea>
+                        <div class="flex justify-end space-x-2">
+                            <button id="cancelReport" class="px-4 py-2 bg-slate-600 text-white rounded hover:bg-slate-500">cancel</button>
+                            <button id="submitReport" class="px-4 py-2 bg-rose-600 text-white rounded hover:bg-rose-500">Send</button>
+                        </div>
+                    </div>
+                `;
+              document.body.appendChild(popup);
+
+              const cancelBtn = popup.querySelector("#cancelReport");
+              if (cancelBtn) {
+                const cancelHandler = () => popup.remove();
+                cancelBtn.addEventListener("click", cancelHandler);
+                eventListeners.push({ element: cancelBtn, event: "click", handler: cancelHandler });
+              }
+
+              const submitBtn = popup.querySelector("#submitReport");
+              if (submitBtn) {
+                const submitHandler = async () => {
+                  const reason = document.getElementById("reportReason").value.trim();
+                  if (reason) {
+                    await supabase.from("reports").insert({
+                      message_id: msg.id,
+                      user_id: window.currentUser.id,
+                      reason,
+                    });
+                    showToast("Info”, ”Message has been reported", "default");
+                  }
+                  popup.remove();
+                };
+                submitBtn.addEventListener("click", submitHandler);
+                eventListeners.push({ element: submitBtn, event: "click", handler: submitHandler });
+              }
+            };
+            reportBtn.addEventListener('click', reportHandler);
+            eventListeners.push({ element: reportBtn, event: "click", handler: reportHandler });
+          }
+        }
+
+        // Owner menu handlers (three-dot menu)
+        if (isMine) {
+          const menuBtn = actions.querySelector('.menu-btn');
+          const dropdown = actions.querySelector('.menu-dropdown');
+          const editItem = actions.querySelector('.edit-item');
+          const deleteMeItem = actions.querySelector('.delete-me-item');
+          const deleteAllItem = actions.querySelector('.delete-all-item');
+
+          if (menuBtn && dropdown) {
+            const toggle = (e) => {
+              e.stopPropagation();
+              const isHidden = dropdown.classList.contains('hidden');
+              document.querySelectorAll('.menu-dropdown').forEach(d => d.classList.add('hidden'));
+              if (isHidden) dropdown.classList.remove('hidden');
+            };
+            menuBtn.addEventListener('click', toggle);
+            eventListeners.push({ element: menuBtn, event: 'click', handler: toggle });
+
+            // Close on outside click
+            const outsideHandler = (ev) => {
+              if (!dropdown.contains(ev.target) && ev.target !== menuBtn) dropdown.classList.add('hidden');
+            };
+            document.addEventListener('click', outsideHandler);
+            eventListeners.push({ element: document, event: 'click', handler: outsideHandler });
+          }
+
+          if (editItem) {
+            const editHandler = (e) => { e.stopPropagation(); startEditMessage(msg.id); dropdown?.classList.add('hidden'); };
+            editItem.addEventListener('click', editHandler);
+            eventListeners.push({ element: editItem, event: 'click', handler: editHandler });
+          }
+
+          if (deleteMeItem) {
+            const delMeHandler = async (e) => { 
+              e.stopPropagation(); 
+              const ok = await showConfirm('Delete', 'Delete this message for you?');
+              if (!ok) return; 
+              deleteMessageForMe(msg.id); 
+              dropdown?.classList.add('hidden'); 
+            };
+            deleteMeItem.addEventListener('click', delMeHandler);
+            eventListeners.push({ element: deleteMeItem, event: 'click', handler: delMeHandler });
+          }
+
+          if (deleteAllItem) {
+            const delAllHandler = async (e) => { 
+              e.stopPropagation(); 
+              if (!canDeleteForEveryone(msg)) { 
+                showToast('Error', 'Cannot delete for everyone: time limit exceeded', 'destructive'); 
+                return; 
+              } 
+              const ok = await showConfirm('Delete for everyone', 'Delete this message for everyone? This cannot be undone.');
+              if (!ok) return;
+              await deleteMessageForEveryone(msg.id); 
+              dropdown?.classList.add('hidden'); 
+            };
+            deleteAllItem.addEventListener('click', delAllHandler);
+            eventListeners.push({ element: deleteAllItem, event: 'click', handler: delAllHandler });
+          }
+        }
+
+        // Highlight the emoji the current user liked (make it visually prominent)
+try {
+  const currentUserId = window.currentUser?.id;
+  if (currentUserId && Array.isArray(msg.likes)) {
+    // normalize the likes shape
+    const normalized = normalizeLikes(msg.likes);
+    // find current user's like(s)
+    const myLikes = normalized.filter(l => l.user_id === currentUserId);
+    likeButtons.forEach(btn => {
+      const type = btn.dataset.type;
+      const hasMyLike = myLikes.some(l => l.type === type);
+      if (hasMyLike) {
+        // add a prominent style for the liked emoji
+        btn.classList.add('liked-emoji');
+        btn.style.transform = 'scale(1.08)';
+        btn.style.background = 'linear-gradient(90deg,#06b6d4,#7c3aed)';
+        btn.style.color = 'white';
+        btn.style.borderRadius = '8px';
+        btn.style.padding = '4px 6px';
+      } else {
+        // reset any inline styles for non-liked buttons (safe-idempotent)
+        btn.classList.remove('liked-emoji');
+        btn.style.transform = '';
+        btn.style.background = '';
+        btn.style.color = '';
+        btn.style.borderRadius = '';
+        btn.style.padding = '';
+      }
+    });
+  }
+} catch (e) {
+  // don't block UI if something goes wrong
+  console.error('Error applying like highlight:', e);
+}
+
+        // attach click handlers so clicking avatar or name opens the user profile popup
+        try {
+          if (msg.user_id) {
+            const avatarEl = messageEl.querySelector('.flex-shrink-0');
+            if (avatarEl) {
+              avatarEl.style.cursor = 'pointer';
+              const avHandler = (e) => { e.stopPropagation(); showUserProfilePopup(msg.user_id); };
+              avatarEl.addEventListener('click', avHandler);
+              eventListeners.push({ element: avatarEl, event: 'click', handler: avHandler });
+            }
+
+            const nameEl = messageEl.querySelector('.flex-1 .text-xs');
+            if (nameEl) {
+              nameEl.style.cursor = 'pointer';
+              const nameHandler = (e) => { e.stopPropagation(); showUserProfilePopup(msg.user_id); };
+              nameEl.addEventListener('click', nameHandler);
+              eventListeners.push({ element: nameEl, event: 'click', handler: nameHandler });
+            }
+          }
+        } catch (e) {
+          console.error('attach profile click handlers error:', e);
+        }
+
+        lucide.createIcons();
+        if (!existingMessage) {
+          chatMessages.appendChild(messageEl);
+        }
+
+        if (isAtBottom) {
+          chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'smooth' });
+        }
+      }
+
+
+
+      // Cek apakah pengguna di bawah
+      function isScrolledToBottom(element) {
+        return element.scrollHeight - element.scrollTop <= element.clientHeight + 10;
+      }
+
+      // Highlight text @username
+      function highlightMentions(text) {
+        return text.replace(/@([\w\s]+)/g, '<span class="text-cyan-400 font-semibold">@$1</span>');
+      }
+
+      // Deteksi mention @username
+      function detectMentions(content) {
+        const mentions = content.match(/@([\w\s]+)/g) || [];
+        return mentions.map(m => m.substring(1).trim());
+      }
+
+      // Ambil daftar pengguna yang pernah mengirim pesan
+      async function fetchChatParticipants(query = "") {
+        try {
+          const { data, error } = await supabase
+            .from("profiles")
+            .select("id, full_name, avatar_url")
+            .ilike("full_name", `%${query}%`)
+            .limit(10);
+          if (error) throw error;
+          return data;
+        } catch (error) {
+          console.error("Gagal mengambil daftar pengguna:", error);
+          return [];
+        }
+      }
+
+      // Tampilkan daftar saran autocompletion
+      async function showMentionSuggestions(query, chatInput, suggestionList) {
+        if (!suggestionList) return;
+
+        const participants = await fetchChatParticipants(query);
+        suggestionList.innerHTML = "";
+        suggestionList.classList.add("hidden");
+
+        if (participants.length === 0) return;
+
+        participants.forEach(user => {
+          const item = document.createElement("div");
+          item.className = "suggestion-item flex items-center space-x-2 p-2 hover:bg-gray-100 cursor-pointer";
+          const initial = user.full_name ? user.full_name[0].toUpperCase() : "A";
+          item.innerHTML = `
+            <div class="avatar w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center">
+                ${initial}
+            </div>
+            <span>${sanitizeHTML(user.full_name)}</span>
+        `;
+          item.dataset.userId = user.id;
+          item.dataset.fullName = user.full_name;
+          const clickHandler = () => {
+            const cursorPos = chatInput.selectionStart;
+            const textBefore = chatInput.value.substring(0, cursorPos).replace(/@[\w\s]*$/, `@${user.full_name} `);
+            const textAfter = chatInput.value.substring(cursorPos);
+            chatInput.value = textBefore + textAfter;
+            suggestionList.classList.add("hidden");
+            chatInput.focus();
+          };
+          item.addEventListener("click", clickHandler);
+          eventListeners.push({ element: item, event: "click", handler: clickHandler });
+          suggestionList.appendChild(item);
+        });
+
+        suggestionList.classList.remove("hidden");
+      }
+
+      // Ambil data profil pengguna
+      async function fetchUserProfile(userId) {
+        try {
+          const { data: profile, error } = await supabase
+            .from("profiles")
+            .select("full_name, avatar_url")
+            .eq("id", userId)
+            .single();
+          if (error) throw error;
+          return {
+            full_name: profile?.full_name || "Anonim",
+            avatar_url: profile?.avatar_url || "",
+          };
+        } catch (error) {
+          console.error("Gagal mengambil profil:", error);
+          return { full_name: "Anonim", avatar_url: "" };
+        }
+      }
+
+        // Fetch extended user details for profile popup (points, boosters, followers)
+        async function fetchUserDetails(userId) {
+          try {
+            // Try to get richer profile info from `profiles` table if available
+            const { data: profile, error: profileErr } = await supabase
+              .from('profiles')
+              .select('id, full_name, avatar_url, points, boosters, followers_count')
+              .eq('id', userId)
+              .single();
+
+            if (profileErr && profileErr.code) {
+              // Proceed with fallback minimal profile
+              console.warn('fetchUserDetails: profiles query error', profileErr.message || profileErr);
+            }
+
+            // Attempt to get follower count from `follows` table if not present
+            let followersCount = profile?.followers_count || 0;
+            if ((followersCount === undefined || followersCount === null) && profile) {
+              try {
+                const { count, error: countErr } = await supabase
+                  .from('follows')
+                  .select('*', { count: 'exact', head: true })
+                  .eq('following_id', userId);
+                if (!countErr) followersCount = count || 0;
+              } catch (e) {
+                // ignore
+              }
+            }
+
+            return {
+              id: profile?.id || userId,
+              full_name: profile?.full_name || 'Anonim',
+              avatar_url: profile?.avatar_url || '',
+              points: profile?.points || 0,
+              boosters: profile?.boosters || [],
+              followers_count: followersCount || 0,
+            };
+          } catch (err) {
+            console.error('fetchUserDetails error:', err);
+            return { id: userId, full_name: 'Anonim', avatar_url: '', points: 0, boosters: [], followers_count: 0 };
+          }
+        }
+
+        
+
+    // Subscribe to message updates
+      async function subscribeToMessageUpdates() {
+        try {
+          const messagesUpdateChannel = supabase.channel('message-updates', {
+            config: {
+              broadcast: { self: true },
+              presence: {
+                key: window.currentUser?.id,
+              },
+            },
+          });
+
+          messagesUpdateChannel
+            .on(
+              'presence',
+              { event: 'sync' },
+              () => {
+                console.log('Presence sync successful');
+              }
+            )
+              .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'messages',
+              }, async (payload) => {
+                const updatedMsg = payload.new;
+                const msgIndex = messagesList.findIndex(m => m.id === updatedMsg.id);
+                if (msgIndex !== -1) {
+                  // Preserve existing message data and merge with updates
+                  messagesList[msgIndex] = { 
+                    ...messagesList[msgIndex], 
+                    ...updatedMsg,
+                    full_name: messagesList[msgIndex].full_name,
+                    avatar_url: messagesList[msgIndex].avatar_url
+                  };
+                  await appendMessage(messagesList[msgIndex], true);
+                }
+              })
+              .on(
+                "postgres_changes",
+                {
+                  event: "DELETE",
+                  schema: "public",
+                  table: "messages",
+                },
+                async (payload) => {
+                  try {
+                    const deleted = payload.old;
+                    if (!deleted || !deleted.id) return;
+                    const index = messagesList.findIndex(m => m.id === deleted.id);
+                    if (index !== -1) {
+                      messagesList.splice(index, 1);
+                      localStorage.setItem("chatMessages", JSON.stringify(messagesList.slice(-100)));
+                    }
+                    const el = document.querySelector(`[data-message-id="${deleted.id}"]`);
+                    if (el) el.remove();
+                    // optional: show a subtle toast or animation
+                    // showToast('Info', 'A message was deleted', 'default');
+                  } catch (err) {
+                    console.error('Error handling deleted message realtime event:', err);
+                  }
+                }
+              );
+
+          // Subscribe to the channel
+          await messagesUpdateChannel.subscribe(async (status) => {
+            if (status === 'SUBSCRIBED') {
+              // Track presence for the current user
+              const presenceTrackStatus = await messagesUpdateChannel.track({
+                online_at: new Date().toISOString(),
+                username: window.currentUser?.profile?.full_name,
+              });
+              
+              if (presenceTrackStatus === 'ok') {
+                console.log('Presence tracking successful');
+              }
+            }
+          });
+
+          return messagesUpdateChannel;
+        } catch (error) {
+          console.error('Error setting up message updates subscription:', error);
+          throw error;
+        }
+      }
+
+      // Kirim pesan
+      async function sendMessage(content, image_url = null, audio_url = null, tempId = null, duration = null) {
+        const chatInput = document.getElementById("chatInput");
+        const sendMessageBtn = document.getElementById("sendMessageBtn");
+        const suggestionList = document.getElementById("mentionSuggestions");
+
+        try {
+          // Cek apakah ini pesan pribadi
+          const isPrivateMessage = window.privateChatTarget ? true : false;
+          if (!chatInput || !sendMessageBtn) {
+            console.error("Elemen chatInput atau sendMessageBtn tidak ditemukan");
+            showToast("Error", "Input element not found", "destructive");
+            return;
+          }
+
+          const userId = window.currentUser?.id;
+          if (!userId) {
+            showToast("Error", "You are not logged in yet.", "destructive");
+            return;
+          }
+
+          const now = Date.now();
+
+          if (content && lastChatTime[userId] && (now - lastChatTime[userId] < CHAT_COOLDOWN)) {
+            const remaining = Math.ceil((CHAT_COOLDOWN - (now - lastChatTime[userId])) / 1000);
+            showToast("Warning", `Wait ${remaining} seconds left to chat!`, "destructive");
+            startChatTimer(remaining);
+            return;
+          }
+
+          if ((image_url || audio_url) && lastMediaTime[userId] && (now - lastMediaTime[userId] < MEDIA_COOLDOWN)) {
+            const remaining = Math.ceil((MEDIA_COOLDOWN - (now - lastMediaTime[userId])) / 1000 / 60);
+            showToast("Warning", `Wait ${remaining} more minutes to send media!`, "destructive");
+            return;
+          }
+
+          if (!content && !image_url && !audio_url) return;
+
+          let filteredContent = content ? filterBadWords(content) : content;
+
+          chatInput.disabled = true;
+          sendMessageBtn.disabled = true;
+          sendMessageBtn.innerHTML = `<i data-lucide="loader" class="h-4 w-4 animate-spin"></i>`;
+          lucide.createIcons();
+
+          const profile = window.currentUser.profile || (await fetchUserProfile(userId));
+          window.currentUser.profile = profile;
+
+          const messageData = {
+            user_id: userId,
+            full_name: profile.full_name,
+            avatar_url: profile.avatar_url,
+            content: filteredContent || "[Media]",
+            status: "Delivered",
+            is_read: false,
+            read_at: null,
+            likes: [],
+          };
+
+          // support simple direct/private message: set recipient if privateChatTarget present
+          if (window.privateChatTarget && isValidUuid(window.privateChatTarget)) {
+            messageData.is_private = true;
+            messageData.recipient_id = window.privateChatTarget;
+          }
+
+          if (image_url) messageData.image_url = image_url;
+          if (audio_url) {
+            messageData.audio_url = audio_url;
+            if (duration) messageData.duration = duration;
+          }
+
+          let mentionedUserIds = [];
+          const mentionedUsernames = detectMentions(filteredContent);
+          for (const username of mentionedUsernames) {
+            const { data: taggedUser, error } = await supabase
+              .from("profiles")
+              .select("id")
+              .eq("full_name", username)
+              .maybeSingle();
+            if (error) {
+              console.error(`Gagal mencari pengguna ${username}:`, error);
+              continue;
+            }
+            if (taggedUser) {
+              mentionedUserIds.push(taggedUser.id);
+            }
+          }
+
+          if (mentionedUserIds.length > 0) {
+            messageData.mentions = mentionedUserIds;
+          }
+
+          // Merge additional fields into the existing messageData object to avoid redeclaration
+          if (content) messageData.content = filteredContent || "[Media]";
+          if (image_url) messageData.image_url = image_url;
+          if (audio_url) {
+            messageData.audio_url = audio_url;
+            if (duration) messageData.duration = duration;
+          }
+
+          // Jika ini pesan pribadi, gunakan tabel direct_messages bila tersedia
+          if (isPrivateMessage) {
+            if (hasDirectMessagesTable) {
+              try {
+                const { data: dmData, error: dmErr } = await supabase
+                  .from('direct_messages')
+                  .insert({
+                    sender_id: userId,
+                    receiver_id: window.privateChatTarget,
+                    content: messageData.content
+                  })
+                  .select()
+                  .single();
+                if (dmErr) throw dmErr;
+                // cache and UI
+                if (!directMessages[window.privateChatTarget]) directMessages[window.privateChatTarget] = [];
+                directMessages[window.privateChatTarget].push(dmData);
+                updateDirectMessageUI(window.privateChatTarget);
+                showToast('Success', 'Private message sent', 'success');
+              } catch (dmErr) {
+                console.error('Failed to send direct message:', dmErr);
+                showToast('Error', 'Failed to send private message', 'error');
+              }
+              // done for private mode
+              chatInput.disabled = false;
+              sendMessageBtn.disabled = false;
+              sendMessageBtn.innerHTML = `<i data-lucide="send" class="h-4 w-4"></i>`;
+              lucide.createIcons();
+              return;
+            } else {
+              // fallback: save locally
+              try {
+                const local = JSON.parse(localStorage.getItem('directMessages') || '{}');
+                if (!local[window.privateChatTarget]) local[window.privateChatTarget] = [];
+                const localMsg = {
+                  id: `local-${Date.now()}`,
+                  sender_id: userId,
+                  receiver_id: window.privateChatTarget,
+                  content: messageData.content,
+                  created_at: new Date().toISOString()
+                };
+                local[window.privateChatTarget].push(localMsg);
+                localStorage.setItem('directMessages', JSON.stringify(local));
+                if (!directMessages[window.privateChatTarget]) directMessages[window.privateChatTarget] = [];
+                directMessages[window.privateChatTarget].push(localMsg);
+                updateDirectMessageUI(window.privateChatTarget);
+                showToast('Info', 'Private messages are not supported on server; saved locally', 'info');
+              } catch (localErr) {
+                console.error('Failed to save local DM:', localErr);
+                showToast('Error', 'Failed to save private message locally', 'error');
+              }
+              chatInput.disabled = false;
+              sendMessageBtn.disabled = false;
+              sendMessageBtn.innerHTML = `<i data-lucide="send" class="h-4 w-4"></i>`;
+              lucide.createIcons();
+              return;
+            }
+          }
+
+          // Non-private message -> insert into public messages table
+          const { data, error: sendError } = await supabase
+            .from("messages")
+            .insert(messageData)
+            .select()
+            .single();
+          if (sendError) throw sendError;
+
+          if (tempId) {
+            const index = messagesList.findIndex(msg => msg.id === tempId);
+            if (index !== -1) {
+              messagesList[index] = { ...messagesList[index], ...data };
+              localStorage.setItem("chatMessages", JSON.stringify(messagesList.slice(-100)));
+              await appendMessage(messagesList[index], true);
+            } else {
+              messagesList.push(data);
+              localStorage.setItem("chatMessages", JSON.stringify(messagesList.slice(-100)));
+              await appendMessage(data);
+            }
+          }
+
+          if (content) {
+            lastChatTime[userId] = now;
+            startChatTimer(CHAT_COOLDOWN / 1000);
+          }
+          if (image_url || audio_url) {
+            lastMediaTime[userId] = now;
+          }
+
+          for (const username of mentionedUsernames) {
+            const { data: taggedUser, error } = await supabase
+              .from("profiles")
+              .select("id")
+              .eq("full_name", username)
+              .maybeSingle();
+            if (error) {
+              console.error(`Gagal mencari pengguna untuk notifikasi ${username}:`, error);
+              continue;
+            }
+            if (taggedUser) {
+              const { error: notifyError } = await supabase.from("notifications").insert({
+                user_id: taggedUser.id,
+                type: "mention",
+                content: `${profile.full_name} menyebut Anda dalam pesan: "${filteredContent}"`,
+                is_read: false,
+              });
+              if (notifyError) {
+                console.error(`Gagal mengirim notifikasi untuk ${username}:`, notifyError);
+              } else {
+                showToast("Info", `User @${username} has been tagged`, "default");
+              }
+            }
+          }
+
+          if (filteredContent) chatInput.value = "";
+          if (suggestionList) {
+            suggestionList.classList.add("hidden");
+          }
+
+          // if we sent a private message intent, clear the helper
+          if (window.privateChatTarget) {
+            window.privateChatTarget = null;
+            if (chatInput) chatInput.placeholder = "Type your message....";
+          }
+
+          showToast("Success", "Message sent", "default");
+
+        } catch (err) {
+          console.error("Failed to send message:", err);
+          showToast("Error", "Failed to send message: " + err.message, "destructive");
+        } finally {
+          chatInput.disabled = false;
+          sendMessageBtn.disabled = false;
+          sendMessageBtn.innerHTML = `<i data-lucide="send" class="h-4 w-4 text-white"></i>`;
+          lucide.createIcons();
+        }
+      }
+
+      // Fungsi timer cooldown chat
+      function startChatTimer(seconds) {
+        const chatInput = document.getElementById("chatInput");
+        const sendMessageBtn = document.getElementById("sendMessageBtn");
+        let timeLeft = seconds;
+        chatInput.disabled = true;
+        sendMessageBtn.disabled = true;
+
+        const timer = setInterval(() => {
+          timeLeft--;
+          if (timeLeft <= 0) {
+            clearInterval(timer);
+            chatInput.disabled = false;
+            sendMessageBtn.disabled = false;
+            chatInput.placeholder = "Type your message...";
+          } else {
+            chatInput.placeholder = `Wait ${timeLeft} seconds to chat again...`;
+          }
+        }, 1000);
+      }
+
+      // Fungsi untuk memperbarui latensi koneksi
+      function updateConnectionLatency() {
+        const start = Date.now();
+        supabase.from("messages").select("id").limit(1).then(() => {
+          const latency = Date.now() - start;
+          const connectionLatency = document.getElementById("connectionLatency");
+          if (connectionLatency) {
+            connectionLatency.textContent = `${latency}ms`;
+            connectionLatency.parentElement.classList.remove("text-red-400");
+            connectionLatency.parentElement.classList.add("text-slate-400");
+          }
+        }).catch(() => {
+          const connectionLatency = document.getElementById("connectionLatency");
+          if (connectionLatency) {
+            connectionLatency.textContent = "Terputus";
+            connectionLatency.parentElement.classList.remove("text-slate-400");
+            connectionLatency.parentElement.classList.add("text-red-400");
+          }
+        });
+      }
+
+      // Fungsi untuk memperbarui daftar pengguna online
+      function updateOnlineUsers(users) {
+        const onlineUsersList = document.getElementById("onlineUsersList");
+        if (!onlineUsersList) {
+          console.error("Elemen onlineUsersList tidak ditemukan di DOM");
+          return;
+        }
+
+        onlineUsersList.innerHTML = "";
+        if (users.length === 0) {
+          onlineUsersList.innerHTML = `<div class="text-center text-slate-400 py-2">No users online</div>`;
+          return;
+        }
+
+        users.forEach(user => {
+          const userEl = document.createElement("div");
+          userEl.className = "flex flex-col items-center";
+          const color = user.full_name.includes("Sarah") ? "purple" :
+            user.full_name.includes("Mike") ? "amber" :
+              user.full_name.includes("Lisa") ? "emerald" :
+                user.full_name.includes("Alex") ? "rose" : "blue";
+          const statusColor = user.full_name === "Alex" ? "amber" : "emerald";
+          let avatarContent = user.full_name ? user.full_name[0].toUpperCase() : "A";
+          if (user.avatar_url) {
+            try {
+              const { data: avatarData } = supabase.storage
+                .from("avatars")
+                .getPublicUrl(user.avatar_url);
+              if (avatarData?.publicUrl) {
+                avatarContent = `<img src="${avatarData.publicUrl}" class="h-8 w-8 rounded-full object-cover" alt="Avatar" />`;
+              }
+            } catch (error) {
+              console.error("Gagal ambil avatar:", error);
+            }
+          }
+          userEl.innerHTML = `
+            <div class="relative">
+                <div class="h-8 w-8 rounded-full bg-gradient-to-br from-${color}-500/20 to-${color}-600/20 border border-${color}-500/30 flex items-center justify-center shadow-sm">
+                    ${avatarContent}
+                </div>
+                <div class="absolute bottom-0 right-0 h-2 w-2 bg-${statusColor}-500 rounded-full border border-slate-900"></div>
+            </div>
+            <span class="text-xs text-slate-400 mt-1 truncate w-10 text-center">${sanitizeHTML(user.full_name.split(' ')[0])}</span>
+        `;
+          // make user element clickable to open profile popup
+          userEl.style.cursor = 'pointer';
+          // expose data-user-id for document-level delegation
+          try { userEl.dataset.userId = user.id || user.user_id || ''; } catch (e) {}
+          const userClickHandler = (e) => {
+            e.stopPropagation();
+            showUserProfilePopup(user.id || user.user_id);
+          };
+          userEl.addEventListener('click', userClickHandler);
+          eventListeners.push({ element: userEl, event: 'click', handler: userClickHandler });
+          onlineUsersList.appendChild(userEl);
+        });
+
+        const onlineCount = document.querySelector("#onlineUsersList").parentElement.querySelector("span");
+        if (onlineCount) {
+          onlineCount.textContent = `Online (${users.length})`;
+        }
+        lucide.createIcons();
+      }
+
+      // Fungsi untuk membersihkan event listener dan subscription
+      function cleanupChat() {
+        eventListeners.forEach(({ element, event, handler }) => {
+          element.removeEventListener(event, handler);
+        });
+        eventListeners = [];
+
+        supabaseChannels.forEach(channel => {
+          supabase.removeChannel(channel);
+        });
+        supabaseChannels = [];
+
+        if (latencyInterval) {
+          clearInterval(latencyInterval);
+        }
+        if (presenceInterval) {
+          clearInterval(presenceInterval);
+          presenceInterval = null;
+        }
+
+        messagesList = [];
+        adminMessagesList = [];
+        onlineUsers = [];
+        isChatInitialized = false;
+        localStorage.removeItem("chatMessages");
+        lastChatTime = {};
+        lastMediaTime = {};
+
+        const chatMessages = document.getElementById("chatMessages");
+        const adminMessages = document.getElementById("adminMessages");
+        if (chatMessages) chatMessages.innerHTML = "";
+        if (adminMessages) adminMessages.innerHTML = "";
+      }
+
+      // Fungsi untuk mengikat event listener
+      function bindEventListeners() {
+        const chatInput = document.getElementById("chatInput");
+        const sendMessageBtn = document.getElementById("sendMessageBtn");
+        const uploadImageButton = document.getElementById("uploadImageButton");
+        const imageInput = document.getElementById("imageInput");
+        const recordVoiceBtn = document.getElementById("recordVoiceBtn");
+        const suggestionList = document.getElementById("mentionSuggestions");
+        const emojiPickerBtn = document.getElementById("emojiPickerBtn");
+        const voiceCallBtn = document.getElementById("voiceCallBtn");
+        const videoCallBtn = document.getElementById("videoCallBtn");
+        const refreshChatBtn = document.getElementById("refreshChatBtn");
+        const expandUsersBtn = document.getElementById("expandUsersBtn");
+
+        if (!chatInput || !sendMessageBtn) {
+          console.error("Elemen chatInput atau sendMessageBtn tidak ditemukan");
+          return;
+        }
+
+        // Bersihkan semua listener sebelumnya
+        eventListeners.forEach(({ element, event, handler }) => {
+          element.removeEventListener(event, handler);
+        });
+        eventListeners = [];
+
+        const sendMessageHandler = async () => {
+          const content = chatInput.value.trim();
+          if (content) await sendMessage(content);
+          chatInput.focus();
+          if (suggestionList) {
+            suggestionList.classList.add("hidden");
+          }
+        };
+        sendMessageBtn.addEventListener("click", sendMessageHandler);
+        eventListeners.push({ element: sendMessageBtn, event: "click", handler: sendMessageHandler });
+
+        const keypressHandler = async (e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            const content = chatInput.value.trim();
+            if (content) await sendMessage(content);
+            chatInput.focus();
+            if (suggestionList) {
+              suggestionList.classList.add("hidden");
+            }
+          }
+        };
+        chatInput.addEventListener("keypress", keypressHandler);
+        eventListeners.push({ element: chatInput, event: "keypress", handler: keypressHandler });
+
+        let isTyping = false;
+        let typingChannel = null;
+        const inputHandler = async () => {
+          if (!typingChannel) {
+            typingChannel = supabase.channel("typing");
+            typingChannel.subscribe((status) => {
+              if (status === "SUBSCRIBED") {
+                if (isTyping) {
+                  typingChannel.track({
+                    user_id: window.currentUser.id,
+                    full_name: window.currentUser.profile.full_name,
+                    isTyping: true
+                  }).catch(err => console.error("Gagal track typing:", err));
+                }
+              }
+            });
+            supabaseChannels.push(typingChannel);
+          }
+
+          if (!isTyping) {
+            isTyping = true;
+            if (typingChannel.state === "SUBSCRIBED") {
+              typingChannel.track({
+                user_id: window.currentUser.id,
+                full_name: window.currentUser.profile.full_name,
+                isTyping: true
+              }).catch(err => console.error("Gagal track typing:", err));
+            }
+          }
+          clearTimeout(window.typingTimeout);
+          window.typingTimeout = setTimeout(() => {
+            isTyping = false;
+            if (typingChannel.state === "SUBSCRIBED") {
+              typingChannel.track({
+                user_id: window.currentUser.id,
+                full_name: window.currentUser.profile.full_name,
+                isTyping: false
+              }).catch(err => console.error("Gagal untrack typing:", err));
+            }
+          }, 2000);
+
+          const cursorPos = chatInput.selectionStart;
+          const textBeforeCursor = chatInput.value.substring(0, cursorPos);
+          const mentionMatch = textBeforeCursor.match(/@([\w\s]*)$/);
+          if (mentionMatch) {
+            const query = mentionMatch[1];
+            await showMentionSuggestions(query, chatInput, suggestionList);
+          } else {
+            if (suggestionList) {
+              suggestionList.classList.add("hidden");
+            }
+          }
+
+          chatInput.style.height = "auto";
+          chatInput.style.height = `${chatInput.scrollHeight}px`;
+        };
+        chatInput.addEventListener("input", inputHandler);
+        eventListeners.push({ element: chatInput, event: "input", handler: inputHandler });
+
+        if (uploadImageButton && imageInput) {
+          const triggerImageInput = () => {
+            imageInput.click();
+          };
+          uploadImageButton.addEventListener("click", triggerImageInput);
+          eventListeners.push({ element: uploadImageButton, event: "click", handler: triggerImageInput });
+
+          const handleImageUpload = async (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const userId = window.currentUser?.id;
+            if (!userId) {
+              showToast("Error", "You are not logged in yet.", "destructive");
+              return;
+            }
+
+            const now = Date.now();
+            if (lastMediaTime[userId] && (now - lastMediaTime[userId] < MEDIA_COOLDOWN)) {
+              const remaining = Math.ceil((MEDIA_COOLDOWN - (now - lastMediaTime[userId])) / 1000 / 60);
+              showToast("Warning", `wait ${remaining} another minute to send a picture!`, "destructive");
+              return;
+            }
+
+            // Validasi ukuran file (maks 5MB)
+            const maxSizeMB = 5;
+            if (file.size > maxSizeMB * 1024 * 1024) {
+              showToast("Error", `Maximum image size ${maxSizeMB}MB`, "destructive");
+              return;
+            }
+
+            if (window.isSendingMedia) {
+              showToast("Peringatan", "Currently uploading media, please wait.", "destructive");
+              return;
+            }
+            window.isSendingMedia = true;
+
+            showToast("Info", "Uploading images...", "default");
+
+            try {
+              const filePath = `chat_images/${Date.now()}_${file.name}`;
+              const { error } = await supabase.storage.from("chat-media").upload(filePath, file);
+              if (error) throw error;
+
+              const { data } = supabase.storage.from("chat-media").getPublicUrl(filePath);
+
+              const img = new Image();
+              img.crossOrigin = "anonymous";
+              img.src = data.publicUrl;
+              await new Promise(resolve => img.onload = resolve);
+
+              const canvas = document.createElement("canvas");
+              const ctx = canvas.getContext("2d");
+              const maxWidth = 200;
+              let width = img.width;
+              let height = img.height;
+
+              if (width > maxWidth) {
+                height *= maxWidth / width;
+                width = maxWidth;
+              }
+
+              canvas.width = width;
+              canvas.height = height;
+              ctx.drawImage(img, 0, 0, width, height);
+              const resizedUrl = canvas.toDataURL("image/jpeg");
+
+              const tempId = `temp-${Date.now()}`;
+              await sendMessage("🖼️", resizedUrl, null, tempId);
+
+            } catch (error) {
+              console.error("Failed to upload image:", error);
+              showToast("Error", "Failed to upload image: " + error.message, "destructive");
+            } finally {
+              event.target.value = "";
+              window.isSendingMedia = false;
+            }
+          };
+          imageInput.addEventListener("change", handleImageUpload);
+          eventListeners.push({ element: imageInput, event: "change", handler: handleImageUpload });
+        }
+
+        if (recordVoiceBtn) {
+          const createVoiceRecorderUI = () => {
+            const modal = document.createElement("div");
+            modal.id = "voiceRecorderModal";
+            modal.className = "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden";
+            modal.innerHTML = `
+            <div class="bg-slate-800 p-6 rounded-lg shadow-lg w-80 transform transition-all duration-300">
+                <h3 class="text-lg font-semibold text-white mb-4">Rekam Suara</h3>
+                <div class="flex items-center justify-center mb-4">
+                    <span id="voiceTimer" class="text-xl text-cyan-400 font-mono">00:00</span>
+                </div>
+                <div id="waveformAnimation" class="h-8 flex items-center justify-center gap-1">
+                    <div class="bar bg-cyan-500 w-1 rounded" style="animation: wave 0.5s infinite"></div>
+                    <div class="bar bg-cyan-500 w-1 rounded" style="animation: wave 0.5s infinite 0.1s"></div>
+                    <div class="bar bg-cyan-500 w-1 rounded" style="animation: wave 0.5s infinite 0.2s"></div>
+                    <div class="bar bg-cyan-500 w-1 rounded" style="animation: wave 0.5s infinite 0.3s"></div>
+                    <div class="bar bg-cyan-500 w-1 rounded" style="animation: wave 0.5s infinite 0.4s"></div>
+                </div>
+                <div class="flex justify-center space-x-4 mt-4">
+                    <button id="startRecordBtn" class="px-4 py-2 bg-cyan-600 text-white rounded-full hover:bg-cyan-500 flex items-center">
+                        <i data-lucide="mic" class="h-4 w-4 mr-2"></i>Rekam
+                    </button>
+                    <button id="stopRecordBtn" class="px-4 py-2 bg-red-600 text-white rounded-full hover:bg-red-500 flex items-center hidden">
+                        <i data-lucide="square" class="h-4 w-4 mr-2"></i>Stop
+                    </button>
+                </div>
+                <div id="previewControls" class="hidden mt-4">
+                    <div class="flex items-center justify-center mb-2">
+                        <button id="playPreviewBtn" class="p-2 bg-cyan-500/20 rounded-full">
+                            <svg class="play-icon" width="16" height="16" viewBox="0 0 24 24">
+                                <path fill="currentColor" d="M8 5v14l11-7z"/>
+                            </svg>
+                            <svg class="pause-icon" width="16" height="16" viewBox="0 0 24 24" style="display:none">
+                                <path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                            </svg>
+                        </button>
+                        <span id="previewDuration" class="ml-2 text-xs text-slate-400">00:00</span>
+                    </div>
+                    <div class="flex justify-center space-x-2">
+                        <button id="cancelVoiceBtn" class="px-4 py-2 bg-slate-600 text-white rounded hover:bg-slate-500">cancel</button>
+                        <button id="sendVoiceBtn" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-500">Send</button>
+                    </div>
+                </div>
+            </div>
+            <style>
+                @keyframes wave {
+                    0%, 100% { height: 8px; }
+                    50% { height: 24px; }
+                }
+                .bar { height: 8px; }
+            </style>
+        `;
+            document.body.appendChild(modal);
+            lucide.createIcons();
+            return modal;
+          };
+
+          const handleVoiceRecord = async () => {
+            const userId = window.currentUser?.id;
+            if (!userId) {
+              showToast("Error", "You are not logged in yet.", "destructive");
+              return;
+            }
+
+            const now = Date.now();
+            if (lastMediaTime[userId] && (now - lastMediaTime[userId] < MEDIA_COOLDOWN)) {
+              const remaining = Math.ceil((MEDIA_COOLDOWN - (now - lastMediaTime[userId])) / 1000 / 60);
+              showToast("Warning", `Wait ${remaining} another minute to send the voice!`, "destructive");
+              return;
+            }
+
+            if (window.isSendingMedia) {
+              showToast("Warning", "Currently uploading media, please wait.", "destructive");
+              return;
+            }
+
+            try {
+              const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+              const mediaRecorder = new MediaRecorder(stream);
+              let audioChunks = [];
+              let startTime;
+              let timerInterval;
+              const maxDuration = 120; // 2 menit
+
+              const modal = document.getElementById("voiceRecorderModal") || createVoiceRecorderUI();
+              const startBtn = modal.querySelector("#startRecordBtn");
+              const stopBtn = modal.querySelector("#stopRecordBtn");
+              const playBtn = modal.querySelector("#playPreviewBtn");
+              const cancelBtn = modal.querySelector("#cancelVoiceBtn");
+              const sendBtn = modal.querySelector("#sendVoiceBtn");
+              const timerDisplay = modal.querySelector("#voiceTimer");
+              const previewDuration = modal.querySelector("#previewDuration");
+              const waveform = modal.querySelector("#waveformAnimation");
+              const previewControls = modal.querySelector("#previewControls");
+              const playIcon = playBtn.querySelector(".play-icon");
+              const pauseIcon = playBtn.querySelector(".pause-icon");
+
+              modal.classList.remove("hidden");
+
+              const updateTimer = () => {
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                const minutes = Math.floor(elapsed / 60);
+                const seconds = elapsed % 60;
+                timerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                if (elapsed >= maxDuration) {
+                  mediaRecorder.stop();
+                }
+              };
+
+              mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+              mediaRecorder.onstop = async () => {
+                clearInterval(timerInterval);
+                waveform.classList.add("hidden");
+                previewControls.classList.remove("hidden");
+                startBtn.classList.add("hidden");
+                stopBtn.classList.add("hidden");
+
+                const blob = new Blob(audioChunks, { type: "audio/webm" });
+                const audioUrl = URL.createObjectURL(blob);
+                const audio = new Audio(audioUrl);
+                const duration = Math.floor((Date.now() - startTime) / 1000);
+                const minutes = Math.floor(duration / 60);
+                const seconds = duration % 60;
+                previewDuration.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+                const playHandler = () => {
+                  if (audio.paused) {
+                    audio.play();
+                    playIcon.style.display = "none";
+                    pauseIcon.style.display = "block";
+                  } else {
+                    audio.pause();
+                    playIcon.style.display = "block";
+                    pauseIcon.style.display = "none";
+                  }
+                };
+                playBtn.addEventListener("click", playHandler);
+                eventListeners.push({ element: playBtn, event: "click", handler: playHandler });
+
+                audio.addEventListener("ended", () => {
+                  playIcon.style.display = "block";
+                  pauseIcon.style.display = "none";
+                });
+
+                const sendHandler = async () => {
+                  if (window.isSendingMedia) return;
+                  window.isSendingMedia = true;
+                  sendBtn.disabled = true;
+                  sendBtn.innerHTML = `<i data-lucide="loader" class="h-4 w-4 animate-spin"></i>`;
+
+                  try {
+                    const fileName = `voice_notes/${Date.now()}.webm`;
+                    const { error } = await supabase.storage
+                      .from("chat-media")
+                      .upload(fileName, blob, { contentType: "audio/webm" });
+                    if (error) throw error;
+
+                    const { data } = supabase.storage.from("chat-media").getPublicUrl(fileName);
+                    const tempId = `temp-${Date.now()}`;
+                    await sendMessage("🔊", null, data.publicUrl, tempId, duration);
+
+                    modal.classList.add("hidden");
+                    showToast("Success", "Voice note sent", "default");
+
+                  } catch (error) {
+                    console.error("Failed to upload voice note:", error);
+                    showToast("Error", "Failed to upload voice note: " + error.message, "destructive");
+                  } finally {
+                    window.isSendingMedia = false;
+                    sendBtn.disabled = false;
+                    sendBtn.innerHTML = `<i data-lucide="send" class="h-4 w-4"></i>`;
+                    lucide.createIcons();
+                    stream.getTracks().forEach(track => track.stop());
+                    URL.revokeObjectURL(audioUrl);
+                    audioChunks = [];
+                    audio.remove();
+                    modal.remove();
+                  }
+                };
+                sendBtn.addEventListener("click", sendHandler);
+                eventListeners.push({ element: sendBtn, event: "click", handler: sendHandler });
+
+                const cancelHandler = () => {
+                  mediaRecorder.stop();
+                  modal.classList.add("hidden");
+                  stream.getTracks().forEach(track => track.stop());
+                  clearInterval(timerInterval);
+                  audioChunks = [];
+                  URL.revokeObjectURL(audioUrl);
+                  if (audio) audio.remove();
+                  modal.remove();
+                };
+                cancelBtn.addEventListener("click", cancelHandler);
+                eventListeners.push({ element: cancelBtn, event: "click", handler: cancelHandler });
+              };
+
+              const startHandler = () => {
+                mediaRecorder.start();
+                startTime = Date.now();
+                timerInterval = setInterval(updateTimer, 1000);
+                waveform.classList.remove("hidden");
+                startBtn.classList.add("hidden");
+                stopBtn.classList.remove("hidden");
+              };
+              startBtn.addEventListener("click", startHandler);
+              eventListeners.push({ element: startBtn, event: "click", handler: startHandler });
+
+              const stopHandler = () => {
+                mediaRecorder.stop();
+              };
+              stopBtn.addEventListener("click", stopHandler);
+              eventListeners.push({ element: stopBtn, event: "click", handler: stopHandler });
+            } catch (err) {
+              console.error("Failed to record sound:", err);
+              showToast("Error", "Failed to record sound: " + err.message, "destructive");
+              window.isSendingMedia = false;
+            }
+          };
+          recordVoiceBtn.addEventListener("click", handleVoiceRecord);
+          eventListeners.push({ element: recordVoiceBtn, event: "click", handler: handleVoiceRecord });
+        }
+
+        if (emojiPickerBtn) {
+          const emojis = ["😊", "😂", "👍", "❤️", "🔥", "👀", "🙌", "💡"];
+          const picker = document.createElement("div");
+          picker.className = "absolute bottom-12 left-0 bg-slate-800/90 border border-slate-700/30 rounded-lg p-2 shadow-lg z-10 hidden flex-wrap gap-2";
+          emojis.forEach(emoji => {
+            const btn = document.createElement("button");
+            btn.className = "text-lg hover:bg-slate-700/50 rounded p-1";
+            btn.textContent = emoji;
+            const emojiHandler = () => {
+              chatInput.value += emoji;
+              picker.classList.add("hidden");
+              chatInput.focus();
+            };
+            btn.addEventListener("click", emojiHandler);
+            eventListeners.push({ element: btn, event: "click", handler: emojiHandler });
+            picker.appendChild(btn);
+          });
+
+          emojiPickerBtn.parentElement.appendChild(picker);
+
+          const togglePicker = () => picker.classList.toggle("hidden");
+          emojiPickerBtn.addEventListener("click", togglePicker);
+          eventListeners.push({ element: emojiPickerBtn, event: "click", handler: togglePicker });
+        }
+
+        if (voiceCallBtn) {
+          const voiceCallHandler = () => showToast("Info", "Voice call feature not yet available", "default");
+          voiceCallBtn.addEventListener("click", voiceCallHandler);
+          eventListeners.push({ element: voiceCallBtn, event: "click", handler: voiceCallHandler });
+        }
+
+        if (videoCallBtn) {
+          const videoCallHandler = () => showToast("Info", "Video calling feature not yet available", "default");
+          videoCallBtn.addEventListener("click", videoCallHandler);
+          eventListeners.push({ element: videoCallBtn, event: "click", handler: videoCallHandler });
+        }
+
+        if (refreshChatBtn) {
+          const refreshChatHandler = async () => {
+            refreshChatBtn.disabled = true;
+            refreshChatBtn.querySelector("i").classList.add("animate-spin");
+            await initializeChat();
+            refreshChatBtn.disabled = false;
+            refreshChatBtn.querySelector("i").classList.remove("animate-spin");
+          };
+          refreshChatBtn.addEventListener("click", refreshChatHandler);
+          eventListeners.push({ element: refreshChatBtn, event: "click", handler: refreshChatHandler });
+        }
+
+        if (expandUsersBtn) {
+          const toggleUsersList = () => {
+            const onlineUsersList = document.getElementById("onlineUsersList");
+            onlineUsersList.classList.toggle("hidden");
+            const icon = expandUsersBtn.querySelector("i");
+            icon.classList.toggle("rotate-180");
+          };
+          expandUsersBtn.addEventListener("click", toggleUsersList);
+          eventListeners.push({ element: expandUsersBtn, event: "click", handler: toggleUsersList });
+        }
+      }
+
+      // Fungsi untuk memeriksa dan memulihkan koneksi realtime
+      async function checkRealtimeConnection() {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const status = await supabase.channel('system').subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('Realtime connection restored');
+          }
+        });
+
+        return status;
+      }
+
+      // Fungsi untuk menandai pesan sebagai telah dibaca
+      async function markMessageAsRead(messageId) {
+        try {
+          const { data, error } = await supabase
+            .from("messages")
+            .update({ 
+              is_read: true,
+              read_at: new Date().toISOString(),
+              status: "Read"
+            })
+            .eq("id", messageId)
+            .select();
+
+          if (error) throw error;
+          return data;
+        } catch (err) {
+          console.error("Error marking message as read:", err);
+          return null;
+        }
+      }
+
+      // Handle ketika pesan dibaca oleh penerima
+      function handleMessageRead(messageId, readBy, readAt) {
+        const msgIndex = messagesList.findIndex(m => m.id === messageId);
+        if (msgIndex !== -1) {
+          messagesList[msgIndex].is_read = true;
+          messagesList[msgIndex].status = 'Read';
+          messagesList[msgIndex].read_at = readAt;
+          
+          // Update UI untuk menampilkan status read
+          const statusElement = document.querySelector(`[data-message-id="${messageId}"] .message-status`);
+          if (statusElement) {
+            statusElement.innerHTML = `
+              <i data-lucide="check-check" class="h-3 w-3 mr-1 text-emerald-400"></i>
+              <span>Read ${new Date(readAt).toLocaleTimeString()}</span>
+            `;
+            lucide.createIcons();
+          }
+        }
+      }
+
+      // Helper: apakah pesan bisa diedit (15 menit dari pengiriman)
+      function canEditMessage(msg) {
+        try {
+          if (!msg || !window.currentUser) return false;
+          if (msg.user_id !== window.currentUser.id) return false;
+          if (msg.deleted_for_all) return false;
+          const created = new Date(msg.created_at).getTime();
+          const age = Date.now() - created;
+          return age <= 20 * 60 * 1000; // 20 minutes
+        } catch (e) { return false; }
+      }
+
+      // Helper: apakah pesan bisa dihapus untuk semua (20 menit)
+      function canDeleteForEveryone(msg) {
+        try {
+          if (!msg || !window.currentUser) return false;
+          if (msg.user_id !== window.currentUser.id) return false;
+          if (msg.deleted_for_all) return false;
+          const created = new Date(msg.created_at).getTime();
+          const age = Date.now() - created;
+          return age <= 20 * 60 * 1000; // 20 minutes
+        } catch (e) { return false; }
+      }
+
+      // Hapus pesan hanya untuk saya (local only)
+      async function deleteMessageForMe(messageId) {
+        try {
+          if (!window.currentUser?.id) return;
+          const userKey = `deleted_for_${window.currentUser.id}`;
+          const raw = localStorage.getItem(userKey);
+          const arr = raw ? JSON.parse(raw) : [];
+          if (!arr.includes(messageId)) arr.push(messageId);
+          localStorage.setItem(userKey, JSON.stringify(arr));
+
+          // Remove from local list and DOM
+          const index = messagesList.findIndex(m => m.id === messageId);
+          if (index !== -1) messagesList.splice(index, 1);
+          const el = document.querySelector(`[data-message-id="${messageId}"]`);
+          if (el) el.remove();
+        } catch (err) {
+          console.error('deleteMessageForMe error:', err);
+        }
+      }
+
+      // Hapus pesan untuk semua (reset konten, tandai deleted_for_all)
+      async function deleteMessageForEveryone(messageId) {
+        try {
+          const index = messagesList.findIndex(m => m.id === messageId);
+          if (index === -1) return;
+          const msg = messagesList[index];
+          if (!canDeleteForEveryone(msg)) {
+            showToast('Error', 'Cannot delete for everyone: time limit exceeded', 'destructive');
+            return;
+          }
+
+          // Delete row from database so it's removed for everyone
+          const { data, error } = await supabase.from('messages').delete().eq('id', messageId).select().single();
+          if (error) {
+            console.error('Failed to delete message for everyone:', error);
+            showToast('Error', 'Failed to delete for everyone: ' + error.message, 'destructive');
+            return;
+          }
+
+          // Remove locally as well
+          messagesList.splice(index, 1);
+          const el = document.querySelector(`[data-message-id="${messageId}"]`);
+          if (el) el.remove();
+        } catch (err) {
+          console.error('deleteMessageForEveryone error:', err);
+        }
+      }
+
+      // Mulai proses edit pesan: ganti bubble dengan editor kecil
+      function startEditMessage(messageId) {
+        const index = messagesList.findIndex(m => m.id === messageId);
+        if (index === -1) return;
+        const msg = messagesList[index];
+        if (!canEditMessage(msg)) {
+          showToast('Error', 'Edit time window expired', 'destructive');
+          return;
+        }
+
+        const messageEl = document.querySelector(`[data-message-id="${messageId}"]`);
+        if (!messageEl) return;
+        const contentEl = messageEl.querySelector('.text-sm');
+        if (!contentEl) return;
+
+        // Replace content with editor
+        const textarea = document.createElement('textarea');
+        textarea.className = 'w-full p-2 bg-slate-800 text-white rounded';
+        textarea.value = msg.content || '';
+        const controls = document.createElement('div');
+        controls.className = 'flex justify-end gap-2 mt-2';
+        controls.innerHTML = `
+          <button class="cancel-edit px-3 py-1 bg-slate-600 rounded text-sm">Cancel</button>
+          <button class="save-edit px-3 py-1 bg-cyan-600 rounded text-sm">Save</button>
+        `;
+
+        // Hide original content and append editor
+        contentEl.style.display = 'none';
+        const editorWrapper = document.createElement('div');
+        editorWrapper.className = 'edit-wrapper';
+        editorWrapper.appendChild(textarea);
+        editorWrapper.appendChild(controls);
+        contentEl.parentElement.appendChild(editorWrapper);
+
+        const cancelBtn = controls.querySelector('.cancel-edit');
+        const saveBtn = controls.querySelector('.save-edit');
+
+        const cleanupEditor = () => {
+          editorWrapper.remove();
+          contentEl.style.display = '';
+        };
+
+        cancelBtn.addEventListener('click', cleanupEditor);
+
+        saveBtn.addEventListener('click', async () => {
+          const newContent = textarea.value.trim();
+          if (newContent === msg.content) {
+            cleanupEditor();
+            return;
+          }
+          try {
+            const { data, error } = await supabase.from('messages').update({ content: newContent, edited: true, edited_at: new Date().toISOString() }).eq('id', messageId).select().single();
+            if (error) {
+              console.error('Failed to save edited message:', error);
+              showToast('Error', 'Failed to edit message: ' + error.message, 'destructive');
+              return;
+            }
+            messagesList[index] = { ...messagesList[index], ...data };
+            await appendMessage(messagesList[index], true);
+            cleanupEditor();
+          } catch (err) {
+            console.error('save edit error:', err);
+          }
+        });
+      }
+
+
+      // Modal confirmation popup (replaces native confirm)
+function showConfirm(title = 'Confirm', message = '', confirmText = 'Yes', cancelText = 'Cancel') {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'bg-slate-800 text-white rounded-lg p-4 max-w-md w-full shadow-lg';
+    dialog.innerHTML = `
+      <div class="font-semibold text-lg mb-2">${sanitizeHTML(title)}</div>
+      <div class="text-sm text-slate-300 mb-4">${sanitizeHTML(message)}</div>
+      <div class="flex justify-end gap-2">
+        <button class="confirm-cancel px-3 py-1 bg-slate-600 rounded text-sm">${sanitizeHTML(cancelText)}</button>
+        <button class="confirm-ok px-3 py-1 bg-rose-600 rounded text-sm">${sanitizeHTML(confirmText)}</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    const cleanup = (val) => {
+      try { overlay.remove(); } catch (e) { /* ignore */ }
+      resolve(val);
+    };
+
+    const okBtn = dialog.querySelector('.confirm-ok');
+    const cancelBtn = dialog.querySelector('.confirm-cancel');
+
+    const onOk = (e) => { e.preventDefault(); cleanup(true); };
+    const onCancel = (e) => { e.preventDefault(); cleanup(false); };
+
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+
+    // close when clicking outside the dialog
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) cleanup(false);
+    });
+
+    // allow ESC to cancel
+    const escHandler = (e) => { if (e.key === 'Escape') { cleanup(false); document.removeEventListener('keydown', escHandler); } };
+    document.addEventListener('keydown', escHandler);
+  });
+}
+
+// Inisialisasi chat
+      async function initializeChat() {
+        if (isChatInitialized) {
+          console.log("Chat sudah diinisialisasi, melewati...");
+          return;
+        }
+
+        if (!window.currentUser) {
+          console.log("Tidak ada pengguna, menonaktifkan chat...");
+          disableChat();
+          return;
+        }
+
+        if (!isValidUuid(window.currentUser.id)) {
+          console.error(`Invalid user ID: ${window.currentUser.id}`);
+          showToast("Error", "Invalid user ID", "destructive");
+          disableChat();
+          return;
+        }
+
+        // Check database schema support
+        await checkDatabaseSchema();
+        
+      
+
+        console.log("Menginisialisasi chat...");
+        isChatInitialized = true;
+
+        try {
+          const chatInput = document.getElementById("chatInput");
+          const sendMessageBtn = document.getElementById("sendMessageBtn");
+          const chatMessages = document.getElementById("chatMessages");
+          const adminMessages = document.getElementById("adminMessages");
+
+          if (!chatInput || !sendMessageBtn || !chatMessages || !adminMessages) {
+            console.error("Elemen DOM tidak ditemukan");
+            showToast("Error", "DOM element not found", "destructive");
+            return;
+          }
+
+          const profile = await fetchUserProfile(window.currentUser.id);
+          window.currentUser.profile = profile;
+
+          chatInput.disabled = false;
+          sendMessageBtn.disabled = false;
+          chatInput.placeholder = "Type your message....";
+
+          const { data: adminData, error: adminError } = await supabase
+            .from("admin_messages")
+            .select("*")
+            .order("created_at", { ascending: true })
+            .limit(10);
+          if (adminError) throw adminError;
+
+          adminMessagesList = adminData || [];
+          adminMessages.innerHTML = "";
+          for (const msg of adminMessagesList) {
+            await appendAdminMessage(msg);
+          }
+
+          const cached = JSON.parse(localStorage.getItem("chatMessages") || "[]");
+          messagesList = cached;
+
+          for (const msg of messagesList) {
+            await appendMessage(msg);
+          }
+
+          const { data, error } = await supabase
+            .from("messages")
+            .select("*, profiles(full_name, avatar_url)")
+            .order("created_at", { ascending: true })
+            .limit(50);
+          if (error) throw error;
+
+          // Filter out messages that the current user deleted locally
+          const localDeletedKey = `deleted_for_${window.currentUser.id}`;
+          const localDeletedRaw = localStorage.getItem(localDeletedKey);
+          const localDeleted = localDeletedRaw ? JSON.parse(localDeletedRaw) : [];
+
+          messagesList = (data || []).filter(m => !localDeleted.includes(m.id));
+          localStorage.setItem("chatMessages", JSON.stringify(messagesList));
+          chatMessages.innerHTML = "";
+          for (const msg of messagesList) {
+            await appendMessage(msg);
+          }
+
+          const adminChannel = supabase
+            .channel("realtime-admin-messages")
+            .on(
+              "postgres_changes",
+              {
+                event: "INSERT",
+                schema: "public",
+                table: "admin_messages",
+              },
+              async (payload) => {
+                const msg = payload.new;
+                if (adminMessagesList.some(existingMsg => existingMsg.id === msg.id)) return;
+
+                adminMessagesList.push(msg);
+                await appendAdminMessage(msg);
+                showToast("Info”, ”New admin message", "default");
+              }
+            )
+            .subscribe();
+          supabaseChannels.push(adminChannel);
+
+          try {
+            // Subscribe to message updates
+            const updateChannel = await subscribeToMessageUpdates();
+            if (updateChannel) {
+              supabaseChannels.push(updateChannel);
+              console.log('Successfully subscribed to message updates');
+            }
+          } catch (error) {
+            console.error('Failed to subscribe to message updates:', error);
+          }
+
+          // Subscribe to read status updates
+          messagesList.forEach(msg => {
+            if (msg.user_id === window.currentUser?.id && !msg.is_read) {
+              const readStatusChannel = supabase.channel(`message-${msg.id}`);
+              readStatusChannel
+                .on('broadcast', { event: 'message_read' }, (payload) => {
+                  handleMessageRead(
+                    payload.payload.message_id,
+                    payload.payload.read_by,
+                    payload.payload.read_at
+                  );
+                })
+                .subscribe();
+              supabaseChannels.push(readStatusChannel);
+            }
+          });
+
+          const messagesChannel = supabase
+            .channel("realtime-messages")
+            .on(
+              "postgres_changes",
+              {
+                event: "INSERT",
+                schema: "public",
+                table: "messages",
+              },
+              async (payload) => {
+                const msg = payload.new;
+
+                const existingMsgIndex = messagesList.findIndex(m => m.id === msg.id);
+
+                if (existingMsgIndex !== -1) {
+                  const profile = await fetchUserProfile(msg.user_id);
+                  msg.full_name = profile.full_name;
+                  msg.avatar_url = profile.avatar_url;
+                  messagesList[existingMsgIndex] = { ...msg, full_name: profile.full_name, avatar_url: profile.avatar_url };
+                  localStorage.setItem("chatMessages", JSON.stringify(messagesList.slice(-100)));
+                  await appendMessage(messagesList[existingMsgIndex], true);
+                  return;
+                }
+
+                const profile = await fetchUserProfile(msg.user_id);
+                msg.full_name = profile.full_name;
+                msg.avatar_url = profile.avatar_url;
+
+                messagesList.push(msg);
+                localStorage.setItem("chatMessages", JSON.stringify(messagesList.slice(-100)));
+                await appendMessage(msg);
+
+                if (Array.isArray(msg.mentions) && msg.mentions.includes(window.currentUser?.id)) {
+                  showToast("Info", `${msg.full_name} call you!`, "default");
+                }
+              }
+            )
+            .on(
+              "postgres_changes",
+              {
+                event: "UPDATE",
+                schema: "public",
+                table: "messages",
+              },
+              async (payload) => {
+                const updatedMsg = payload.new;
+                const index = messagesList.findIndex(msg => msg.id === updatedMsg.id);
+                if (index !== -1) {
+                  const profile = await fetchUserProfile(updatedMsg.user_id);
+                  updatedMsg.full_name = profile.full_name;
+                  updatedMsg.avatar_url = profile.avatar_url;
+                  messagesList[index] = { ...messagesList[index], ...updatedMsg };
+                  localStorage.setItem("chatMessages", JSON.stringify(messagesList.slice(-100)));
+                  await appendMessage(messagesList[index], true);
+                }
+              }
+            )
+            .on(
+              "postgres_changes",
+              {
+                event: "DELETE",
+                schema: "public",
+                table: "messages",
+              },
+              async (payload) => {
+                try {
+                  const deleted = payload.old;
+                  if (!deleted || !deleted.id) return;
+                  const idx = messagesList.findIndex(m => m.id === deleted.id);
+                  if (idx !== -1) {
+                    messagesList.splice(idx, 1);
+                    localStorage.setItem("chatMessages", JSON.stringify(messagesList.slice(-100)));
+                  }
+                  const el = document.querySelector(`[data-message-id="${deleted.id}"]`);
+                  if (el) {
+                    // optional fade-out for smoothness
+                    el.style.transition = 'opacity 180ms ease, transform 180ms ease';
+                    el.style.opacity = '0';
+                    el.style.transform = 'scale(0.98)';
+                    setTimeout(() => el.remove(), 200);
+                  }
+                } catch (err) {
+                  console.error('Error handling deleted message (messagesChannel):', err);
+                }
+              }
+            )
+            .subscribe();
+          supabaseChannels.push(messagesChannel);
+
+          const presenceChannel = supabase
+            .channel("presence", {
+              config: {
+                presence: {
+                  key: window.currentUser?.id,
+                }
+              }
+            })
+            .on("presence", { event: "sync" }, async () => {
+              const state = presenceChannel.presenceState();
+
+              const users = Object.values(state).flat();
+
+              const filteredUsers = users.filter(p => {
+                if (!window.currentUser || !window.currentUser.id) {
+                  console.warn("window.currentUser atau window.currentUser.id tidak tersedia");
+                  return true;
+                }
+                return p.user_id !== window.currentUser.id;
+              });
+
+              const typingUsers = filteredUsers.filter(user => user.isTyping);
+              const typingIndicator = document.getElementById("typingIndicator");
+              if (typingIndicator) {
+                if (typingUsers.length > 0) {
+                  typingIndicator.classList.remove("hidden");
+                  typingIndicator.querySelector("span").textContent = `${typingUsers[0].full_name} sedang mengetik...`;
+                } else {
+                  typingIndicator.classList.add("hidden");
+                }
+              }
+
+              onlineUsers = filteredUsers.map(user => ({
+                user_id: user.user_id,
+                full_name: user.full_name,
+                avatar_url: user.avatar_url,
+                isTyping: user.isTyping,
+              }));
+              updateOnlineUsers(onlineUsers);
+
+              const participantCount = document.querySelector("#pageCommunications .text-xs.text-slate-400 span");
+              if (participantCount) {
+                const totalUsers = users.length;
+                participantCount.textContent = `${totalUsers} active participants`;
+              }
+            })
+            .subscribe(async (status) => {
+              if (status === "SUBSCRIBED") {
+                if (!window.currentUser || !window.currentUser.id || !window.currentUser.profile) {
+                  console.warn("window.currentUser tidak lengkap:", window.currentUser);
+                  return;
+                }
+                try {
+                  await presenceChannel.track({
+                    user_id: window.currentUser.id,
+                    full_name: window.currentUser.profile.full_name,
+                    avatar_url: window.currentUser.profile.avatar_url,
+                    isTyping: false,
+                    online_at: new Date().toISOString()
+                  });
+                  // update current presence state immediately after tracking
+                  try {
+                    const st = presenceChannel.presenceState();
+                    const usersNow = Object.values(st).flat().map(p => ({
+                      user_id: p.user_id,
+                      full_name: p.full_name,
+                      avatar_url: p.avatar_url,
+                      isTyping: p.isTyping
+                    }));
+                    updateOnlineUsers(usersNow.filter(u => u.user_id !== window.currentUser.id));
+                  } catch (e) {
+                    console.debug('Could not read presenceState immediately', e);
+                  }
+                } catch (err) {
+                  console.error("Gagal track pengguna:", err);
+                }
+                // periodic fallback: poll presenceState every 8s to keep online list fresh
+                try {
+                  if (presenceInterval) clearInterval(presenceInterval);
+                } catch(e) {}
+                presenceInterval = setInterval(() => {
+                  try {
+                    const st = presenceChannel.presenceState();
+                    const usersNow = Object.values(st).flat().map(p => ({
+                      user_id: p.user_id,
+                      full_name: p.full_name,
+                      avatar_url: p.avatar_url,
+                      isTyping: p.isTyping
+                    }));
+                    updateOnlineUsers(usersNow.filter(u => u.user_id !== window.currentUser.id));
+                  } catch (e) {
+                    // ignore polling errors
+                  }
+                }, 8000);
+              } else if (status === "CLOSED" || status === "TIMED_OUT") {
+                console.warn("Subscription presence gagal, mencoba ulang...");
+                setTimeout(() => {
+                  try { presenceChannel.subscribe(); } catch (e) { console.error('presence resubscribe error', e); }
+                }, 2000);
+              }
+            });
+          // ensure untrack on unload
+          window.addEventListener('beforeunload', () => {
+            try { presenceChannel.untrack(); } catch (e) { /* ignore */ }
+          });
+          supabaseChannels.push(presenceChannel);
+
+          updateConnectionLatency();
+          latencyInterval = setInterval(updateConnectionLatency, 10000);
+
+          bindEventListeners();
+
+        } catch (err) {
+          console.error("Inisialisasi chat gagal:", err);
+          showToast("Error", "Failed chat initialization: " + err.message, "destructive");
+          disableChat();
+          isChatInitialized = false;
+        }
+      }
+
+      // Fungsi nonaktifkan chat
+      function disableChat() {
+        const chatInput = document.getElementById("chatInput");
+        const sendMessageBtn = document.getElementById("sendMessageBtn");
+        const chatMessages = document.getElementById("chatMessages");
+
+        if (chatInput) {
+          chatInput.disabled = true;
+          chatInput.placeholder = "Login to chat...";
+        }
+
+        if (sendMessageBtn) {
+          sendMessageBtn.disabled = true;
+          sendMessageBtn.classList.add("opacity-50", "cursor-not-allowed");
+        }
+
+        if (chatMessages) {
+          chatMessages.innerHTML = `
+            <div class="text-center text-slate-400 py-4">Silakan login untuk mengakses chat</div>
+        `;
+        }
+      }
+
+
+
+      // Event listener untuk navigasi halaman
+      function handlePageNavigation() {
+        const navCommunications = document.getElementById("navCommunications");
+        if (navCommunications) {
+          const navigateHandler = () => {
+            console.log("Navigasi ke halaman Communications, menginisialisasi chat...");
+            cleanupChat();
+            setTimeout(initializeChat, 100);
+          };
+          navCommunications.addEventListener("click", navigateHandler, { once: true });
+          eventListeners.push({ element: navCommunications, event: "click", handler: navigateHandler });
+        }
+      }
+
+      // Event listener DOM loaded
+      document.addEventListener("DOMContentLoaded", () => {
+        console.log("DOM loaded, memulai inisialisasi...");
+        lucide.createIcons();
+        handlePageNavigation();
+        // Tambahkan penundaan kecil untuk memastikan DOM benar-benar siap
+        setTimeout(() => {
+          initializeChat().catch(err => {
+            console.error("Gagal inisialisasi chat di DOMContentLoaded:", err);
+            showToast("Error", "Failed to load chat, please try again", "destructive");
+          });
+        }, 100);
+      });
