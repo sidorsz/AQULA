@@ -36,6 +36,17 @@ let callChannel = null;
 let callTargetUserId = null;
 let callRoomId = null;
 let turnServers = null; // Cache untuk kredensial TURN
+// [BARU] Simpan detail lawan bicara agar tidak hilang saat refresh UI
+let activeCallDetails = {
+  name: 'User',
+  avatar: null
+};
+
+// [BARU] Status kamera saat ini (depan/belakang)
+let currentFacingMode = 'user'; 
+let isScreenSharing = false; // Status share screen
+
+
 // apakah pengguna saat ini adalah penginisiasi panggilan (caller)
 let callInitiator = false;
 // flag untuk menekan notifikasi/hangup outgoing ketika kita sedang memproses incoming reject/cancel
@@ -560,25 +571,19 @@ async function answerCall() {
 // ------------------ VIDEO CALL FEATURES ------------------
 // Start a one-to-one video call (caller)
 async function startVideoCall(targetUserId, targetUserName, targetAvatarUrl) {
-  console.log('[DEBUG VIDEO CALL] startVideoCall called', { targetUserId, isCalling: !!peerConnection });
+  console.log('[DEBUG VIDEO CALL] startVideoCall called', { targetUserId });
   if (!window.currentUser?.id) { showToast('Error', 'Please login to start a video call', 'error'); return; }
   if (peerConnection) { showToast('Info', 'You are already in a call', 'info'); return; }
 
-  // Clean up any leftover voice UI
+  // Clean up old UI
   const oldContainer = document.getElementById('callModalContainer');
-  if (oldContainer) { oldContainer.style.display = 'none'; oldContainer.innerHTML = ''; console.log('[DEBUG VIDEO CALL] Cleaned up voice call container'); }
+  if (oldContainer) { oldContainer.style.display = 'none'; oldContainer.innerHTML = ''; }
   document.getElementById('videoFloatingBubble')?.remove();
   try { if (__callTimerInterval) { clearInterval(__callTimerInterval); __callTimerInterval = null; } } catch(e) {}
 
   callTargetUserId = targetUserId;
-  const callerName = window.currentUser?.full_name || window.currentUser?.username || null;
-  const calleeName = targetUserName || null;
-  const calleeSlug = slugifyName(calleeName) || `user_${(callTargetUserId || '').substring(0, 6)}`;
-
-  // Kita HANYA perlu nama penerima + timestamp agar unik.
-  // Ini akan menghasilkan ID seperti: "malga_1763419703979"
-  callRoomId = `${calleeSlug}_${Date.now()}`;
-  // fetch profile if needed
+  
+  // Fetch profile if needed
   try {
     if (!targetUserName || !targetAvatarUrl) {
       const { data: profile, error } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', targetUserId).single();
@@ -587,26 +592,39 @@ async function startVideoCall(targetUserId, targetUserName, targetAvatarUrl) {
         targetAvatarUrl = targetAvatarUrl || (profile.avatar_url ? await getAvatarUrl(profile.avatar_url) : '/default-avatar.png');
       }
     }
-  } catch (e) { console.warn('Could not fetch callee profile for video call', e); }
+  } catch (e) { console.warn('Could not fetch callee profile', e); }
 
-  // create UI
-  createVideoCallUI('outgoing', targetUserName, targetAvatarUrl);
-  // Mark that we are the initiator of this video call
+  // [FIX UI RESET] Simpan ke global variable
+  activeCallDetails = {
+    name: targetUserName || 'User',
+    avatar: targetAvatarUrl
+  };
+
+  // Create ID
+  const calleeSlug = slugifyName(targetUserName) || `user_${(callTargetUserId || '').substring(0, 6)}`;
+  callRoomId = `${calleeSlug}_${Date.now()}`;
+
+  // Create UI
+  createVideoCallUI('outgoing', activeCallDetails.name, activeCallDetails.avatar);
   callInitiator = true;
-  try { playRingtone('outgoing'); } catch(e) { console.warn('Could not play outgoing ringtone', e); }
+  try { playRingtone('outgoing'); } catch(e) {}
 
   try {
-    // request camera + mic
+    // Request Media
+    currentFacingMode = 'user'; // Default kamera depan
     localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true });
-    // attach local preview to pip if exists
+    
     const localVid = document.getElementById('localVideo');
-    if (localVid) { localVid.srcObject = localStream; localVid.muted = true; localVid.playsInline = true; try{ localVid.play().catch(()=>{}); }catch(e){} }
+    if (localVid) { 
+        localVid.srcObject = localStream; 
+        localVid.muted = true; 
+        localVid.playsInline = true; 
+    }
 
-    // send DM offer
+    // Send DM Offer
     await sendDirectMessage(targetUserId, `__VIDEO_CALL_OFFER__:${callRoomId}`);
-    console.log('Video call offer DM sent.');
-
-    // join signaling
+    
+    // Join Signaling
     await joinSignalingChannel(callRoomId, true);
   } catch (err) {
     console.error('Error starting video call:', err);
@@ -615,26 +633,38 @@ async function startVideoCall(targetUserId, targetUserName, targetAvatarUrl) {
   }
 }
 
+
+
+// Receive video call (callee)
 // Receive video call (callee)
 async function receiveVideoCall(callerId, receivedRoomId) {
-  console.log('[DEBUG VIDEO] receiveVideoCall STARTED', { callerId, receivedRoomId, hasPeerConnection: !!peerConnection });
-  if (peerConnection) { console.warn('Already in a call, ignoring video call from', callerId); return; }
+  console.log('[DEBUG VIDEO] receiveVideoCall STARTED');
+  if (peerConnection) return;
+  
   const allowed = await checkCallPrivacy(callerId);
-  if (!allowed) { console.log('[DEBUG VIDEO] Call blocked by privacy'); return; }
-  callRoomId = receivedRoomId; callTargetUserId = callerId;
-  console.log('[DEBUG VIDEO] Fetching caller profile...');
+  if (!allowed) return;
+
+  callRoomId = receivedRoomId; 
+  callTargetUserId = callerId;
+  
+  // Fetch Profile
   const { data: profile, error } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', callerId).single();
-  if (error) { console.error('[DEBUG VIDEO] Failed to get caller profile', error); hangUp(); return; }
-  console.log('[DEBUG VIDEO] Got profile:', profile.full_name);
+  if (error) { hangUp(); return; }
+
   const avatarUrl = profile.avatar_url ? await getAvatarUrl(profile.avatar_url) : null;
-  console.log('[DEBUG VIDEO] Calling createVideoCallUI("incoming", ...)', profile.full_name, avatarUrl);
-  // I am callee; mark as not initiator
+  
+  // [FIX UI RESET] Simpan ke global variable
+  activeCallDetails = {
+    name: profile.full_name || 'Unknown',
+    avatar: avatarUrl
+  };
+
   callInitiator = false;
-  createVideoCallUI('incoming', profile.full_name, avatarUrl);
-  console.log('[DEBUG VIDEO] createVideoCallUI completed, now playing ringtone');
-  try { playRingtone('incoming'); } catch(e) { console.warn('Could not play incoming ringtone', e); }
-  console.log('[DEBUG VIDEO] receiveVideoCall COMPLETED');
+  createVideoCallUI('incoming', activeCallDetails.name, activeCallDetails.avatar);
+  try { playRingtone('incoming'); } catch(e) {}
 }
+
+
 
 // Answer video call (Callee)
 async function answerVideoCall() {
@@ -656,29 +686,32 @@ async function answerVideoCall() {
 }
 
 // Create Video Call UI
-// Create Video Call UI (FIXED RE-RENDER ISSUE)
+// Create Video Call UI (FIXED: TRANSITION FROM INCOMING TO ACTIVE)
 function createVideoCallUI(state, name, avatarUrl) {
-  console.log('[DEBUG VIDEO CALL] createVideoCallUI called with state:', state);
+  console.log('[DEBUG VIDEO CALL] createVideoCallUI', state);
   
-  // Cek apakah container sudah ada
-  let container = document.getElementById('videoCallContainer');
-  
-  // Jika container sudah ada dan kita masuk ke state 'active' (saat ontrack),
-  // JANGAN hapus container lama agar transisi mulus, KECUALI jika sebelumnya tidak ada video tag.
-  // Namun, untuk memastikan bug hilang, kita akan hapus container lama HANYA JIKA state != active
-  // atau jika kita mau rebuild layout.
-  
-  // Sembunyikan modal suara lama
-  const oldVoiceContainer = document.getElementById('callModalContainer');
-  if (oldVoiceContainer) { oldVoiceContainer.style.display = 'none'; oldVoiceContainer.innerHTML = ''; }
-  document.getElementById('videoFloatingBubble')?.remove();
+  const finalName = name || activeCallDetails.name || 'User';
+  const finalAvatar = avatarUrl || activeCallDetails.avatar;
 
-  // Jika container sudah ada, kita cek apakah perlu rebuild total?
-  // Untuk amannya sesuai request "perbaiki": Kita rebuild, TAPI di fungsi ontrack (di atas) 
-  // kita sudah pastikan createVideoCallUI dipanggil SEBELUM attach stream.
-  // Jadi kode di bawah ini aman untuk me-remove container lama.
+  const existingContainer = document.getElementById('videoCallContainer');
   
-  if (container) container.remove(); 
+  // [PERBAIKAN LOGIKA DI SINI]
+  // Cek apakah UI saat ini sedang menampilkan tombol terima (artinya masih incoming)
+  const isCurrentlyIncoming = document.getElementById('videoAcceptBtn') !== null;
+
+  // Jika container sudah ada, state yang diminta 'active', DAN UI bukan incoming -> baru kita return (skip rebuild)
+  // Artinya: Jika UI masih incoming, kita WAJIB lanjut ke bawah untuk me-replace HTML-nya.
+  if (existingContainer && state === 'active' && !isCurrentlyIncoming) {
+     return; 
+  }
+
+  // Hapus container lama untuk di-render ulang dengan tombol yang baru
+  if (existingContainer) existingContainer.remove();
+
+  // Cleanup modal suara & bubble
+  const oldVoice = document.getElementById('callModalContainer');
+  if(oldVoice) { oldVoice.style.display = 'none'; oldVoice.innerHTML = ''; }
+  document.getElementById('videoFloatingBubble')?.remove();
 
   const html = `
     <div id="videoCallContainer" class="fixed inset-0 z-[9999] flex items-center justify-center p-4" style="pointer-events:auto;">
@@ -688,48 +721,41 @@ function createVideoCallUI(state, name, avatarUrl) {
         
         <video id="remoteVideo" class="w-full h-full object-cover bg-black" autoplay playsinline></video>
 
-        <div id="localPip" class="absolute right-4 bottom-24 w-28 h-36 md:w-32 md:h-48 rounded-xl overflow-hidden bg-slate-800 border border-slate-600 shadow-lg z-20 transition-all duration-200">
+        <div id="localPip" class="absolute right-4 bottom-28 w-28 h-36 md:w-32 md:h-48 rounded-xl overflow-hidden bg-slate-800 border border-slate-600 shadow-lg z-20">
           <video id="localVideo" class="w-full h-full object-cover transform -scale-x-100" autoplay muted playsinline></video>
         </div>
 
-        <div class="absolute top-0 left-0 right-0 p-4 z-20 bg-gradient-to-b from-black/60 to-transparent">
-          <div class="flex items-center gap-3">
+        <div class="absolute top-0 left-0 right-0 p-4 z-20 bg-gradient-to-b from-black/70 to-transparent pointer-events-none">
+          <div class="flex items-center gap-3 pointer-events-auto">
             <div class="w-10 h-10 rounded-full overflow-hidden bg-slate-800 border border-white/20">
-              ${avatarUrl ? `<img src="${avatarUrl}" class="w-full h-full object-cover" onerror="this.onerror=null;this.src='/default-avatar.png'">` : '<div class="w-full h-full flex items-center justify-center text-white font-bold">'+(name?name[0]:'?')+'</div>'}
+              ${finalAvatar ? `<img src="${finalAvatar}" class="w-full h-full object-cover" onerror="this.src='/default-avatar.png'">` : '<div class="w-full h-full flex items-center justify-center text-white font-bold">'+finalName[0]+'</div>'}
             </div>
             <div>
-               <div class="font-bold text-white text-shadow-sm">${sanitizeHTML(name||'User')}</div>
+               <div class="font-bold text-white text-shadow-sm">${sanitizeHTML(finalName)}</div>
                <div id="videoCallTimer" class="text-xs text-cyan-300 font-mono flex items-center gap-1">
                   <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-                  ${state === 'active' ? '00:00' : (state === 'incoming' ? 'Incoming Video...' : 'Calling...')}
+                  ${state === 'active' ? '00:00' : (state === 'incoming' ? 'Incoming...' : 'Calling...')}
                </div>
             </div>
           </div>
         </div>
 
-        <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-30 flex items-center gap-4 px-6 py-3 bg-slate-900/80 backdrop-blur-md rounded-full border border-white/10 shadow-lg">
+        <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-30 flex items-center gap-3 px-5 py-3 bg-slate-900/90 backdrop-blur-xl rounded-full border border-white/10 shadow-2xl">
           
           ${state === 'incoming' ? `
-             <button id="videoDeclineBtn" class="p-4 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-900/50 transition-transform hover:scale-110">
-                <i data-lucide="phone-off" class="h-6 w-6"></i>
-             </button>
-             <div class="w-4"></div>
-             <button id="videoAcceptBtn" class="p-4 rounded-full bg-green-500 hover:bg-green-600 text-white shadow-lg shadow-green-900/50 transition-transform hover:scale-110 animate-bounce">
-                <i data-lucide="video" class="h-6 w-6"></i>
-             </button>
+             <button id="videoDeclineBtn" class="p-4 rounded-full bg-red-600 hover:bg-red-700 text-white transition-transform hover:scale-110"><i data-lucide="phone-off" class="h-6 w-6"></i></button>
+             <div class="w-8"></div>
+             <button id="videoAcceptBtn" class="p-4 rounded-full bg-green-500 hover:bg-green-600 text-white transition-transform hover:scale-110 animate-bounce"><i data-lucide="video" class="h-6 w-6"></i></button>
           ` : `
-             <button id="videoMicBtn" class="p-3 rounded-full bg-slate-700/50 hover:bg-slate-600 text-white transition-colors" title="Mute">
-                <i data-lucide="mic" class="h-5 w-5"></i>
-             </button>
-             <button id="videoCamBtn" class="p-3 rounded-full bg-slate-700/50 hover:bg-slate-600 text-white transition-colors" title="Camera">
-                <i data-lucide="video" class="h-5 w-5"></i>
-             </button>
-             <button id="videoSwitchCamBtn" class="p-3 rounded-full bg-slate-700/50 hover:bg-slate-600 text-white transition-colors" title="Flip Camera">
-                <i data-lucide="refresh-cw" class="h-5 w-5"></i>
-             </button>
-             <button id="videoEndBtn" class="p-4 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-lg transition-transform hover:scale-105" title="End Call">
-                <i data-lucide="phone-off" class="h-6 w-6"></i>
-             </button>
+             <button id="videoMicBtn" class="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors" title="Mute"><i data-lucide="mic" class="h-5 w-5"></i></button>
+             <button id="videoCamBtn" class="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors" title="Camera"><i data-lucide="video" class="h-5 w-5"></i></button>
+             <button id="videoSwitchCamBtn" class="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors" title="Switch Camera"><i data-lucide="refresh-cw" class="h-5 w-5"></i></button>
+             
+             <button id="videoShareBtn" class="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors hidden md:inline-flex" title="Share Screen"><i data-lucide="monitor-up" class="h-5 w-5"></i></button>
+
+             <button id="videoMinimizeBtn" class="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors" title="Minimize"><i data-lucide="minimize-2" class="h-5 w-5"></i></button>
+             
+             <button id="videoEndBtn" class="p-3.5 rounded-full bg-red-600 hover:bg-red-700 text-white transition-transform hover:scale-105 ml-2" title="End Call"><i data-lucide="phone-off" class="h-5 w-5"></i></button>
           `}
         </div>
       </div>
@@ -748,27 +774,27 @@ function createVideoCallUI(state, name, avatarUrl) {
       }
   }
 
-  // Setup Event Listeners
+  // Attach Event Listeners
   if (state === 'incoming') {
-      document.getElementById('videoAcceptBtn')?.addEventListener('click', () => { 
-          // Ubah tampilan loading sebentar
-          const btn = document.getElementById('videoAcceptBtn');
-          if(btn) btn.innerHTML = '<i data-lucide="loader" class="h-6 w-6 animate-spin"></i>';
-          lucide.createIcons();
-          answerVideoCall(); 
-      });
+      document.getElementById('videoAcceptBtn')?.addEventListener('click', () => { answerVideoCall(); });
       document.getElementById('videoDeclineBtn')?.addEventListener('click', hangUp);
   } else {
       document.getElementById('videoEndBtn')?.addEventListener('click', hangUp);
+      document.getElementById('videoMinimizeBtn')?.addEventListener('click', minimizeVideoCall);
       document.getElementById('videoMicBtn')?.addEventListener('click', toggleMic);
       document.getElementById('videoCamBtn')?.addEventListener('click', toggleCam);
       document.getElementById('videoSwitchCamBtn')?.addEventListener('click', switchCamera);
+      document.getElementById('videoShareBtn')?.addEventListener('click', toggleScreenShare);
   }
 
-  if (state === 'active') {
-      startCallTimer('videoCallTimer');
-  }
+  if (state === 'active') startCallTimer('videoCallTimer');
 }
+
+
+
+
+
+
 
 // Toggle mic for video call (reuse existing audio track toggling)
 function toggleMic() {
@@ -778,28 +804,164 @@ function toggleMic() {
 function toggleCam() { if (!localStream) return; const v = localStream.getVideoTracks()[0]; if (!v) return; v.enabled = !v.enabled; const btn = document.getElementById('videoCamBtn'); updateButtonIcon(btn, v.enabled ? 'video' : 'video-off'); }
 
 // Switch camera (mobile front/back)
+// [FIX BUG] Switch Camera (Front/Back)
 async function switchCamera() {
   try {
     if (!localStream) return;
-    const videoTrack = localStream.getVideoTracks()[0];
-    // Try to get list of devices and find another video device
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const videoDevices = devices.filter(d => d.kind === 'videoinput');
-    if (videoDevices.length < 2) { showToast('Info','No alternative camera found','info'); return; }
-    // pick first device different from current
-    const currentId = videoTrack.getSettings().deviceId;
-    let next = videoDevices.find(d => d.deviceId !== currentId) || videoDevices[0];
-    const newStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: next.deviceId } }, audio: false });
-    const newTrack = newStream.getVideoTracks()[0];
-    // replace track in localStream and peerConnection
-    localStream.removeTrack(videoTrack); videoTrack.stop(); localStream.addTrack(newTrack);
-    const sender = peerConnection && peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
-    if (sender) { await sender.replaceTrack(newTrack); }
-    // update local preview
-    const localVid = document.getElementById('localVideo'); if (localVid) { localVid.srcObject = null; localVid.srcObject = localStream; try{ localVid.play().catch(()=>{}); }catch(e){} }
-    showToast('Success','Camera switched','success');
-  } catch (err) { console.error('switchCamera error', err); showToast('Error','Could not switch camera','error'); }
+    if (isScreenSharing) {
+        showToast('Info', 'Cannot switch camera while screen sharing', 'warning');
+        return;
+    }
+
+    // Toggle facing mode
+    const newMode = currentFacingMode === 'user' ? 'environment' : 'user';
+    
+    // Stop track video lama
+    const oldVideoTrack = localStream.getVideoTracks()[0];
+    if (oldVideoTrack) oldVideoTrack.stop();
+
+    // Request stream baru
+    const newStream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: { exact: newMode } }, // Coba paksa mode
+        audio: false // Audio jangan di-restart agar tidak putus
+    }).catch(async () => {
+        // Fallback jika 'exact' gagal (misal di desktop)
+        return await navigator.mediaDevices.getUserMedia({ 
+            video: true, 
+            audio: false 
+        });
+    });
+
+    const newVideoTrack = newStream.getVideoTracks()[0];
+    
+    // Ganti track di localStream
+    localStream.removeTrack(oldVideoTrack);
+    localStream.addTrack(newVideoTrack);
+
+    // Ganti track di PeerConnection (agar lawan bicara melihat kamera baru)
+    const sender = peerConnection.getSenders().find(s => s.track.kind === 'video');
+    if (sender) {
+        await sender.replaceTrack(newVideoTrack);
+    }
+
+    // Update status
+    currentFacingMode = newMode;
+    
+    // Update Preview Lokal
+    const localVid = document.getElementById('localVideo'); 
+    if (localVid) { 
+        localVid.srcObject = null; // Reset dulu
+        localVid.srcObject = localStream; 
+        
+        // Mirror effect hanya untuk kamera depan
+        if (currentFacingMode === 'user') {
+            localVid.style.transform = 'scaleX(-1)';
+        } else {
+            localVid.style.transform = 'scaleX(1)';
+        }
+    }
+    
+    showToast('Success', `Switched to ${newMode === 'user' ? 'Front' : 'Back'} Camera`, 'success');
+
+  } catch (err) { 
+    console.error('switchCamera error', err); 
+    // Revert jika gagal (nyalakan ulang kamera lama)
+    try {
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const track = fallbackStream.getVideoTracks()[0];
+        localStream.addTrack(track);
+        const localVid = document.getElementById('localVideo');
+        if(localVid) localVid.srcObject = localStream;
+    } catch(e){}
+    
+    showToast('Error', 'Could not switch camera. Device might not support it.', 'error'); 
+  }
 }
+
+
+
+
+
+// [FITUR BARU] Toggle Screen Share
+async function toggleScreenShare() {
+    if (!peerConnection) return;
+    const btn = document.getElementById('videoShareBtn');
+
+    if (isScreenSharing) {
+        // Matikan Share Screen -> Kembali ke Kamera
+        try {
+            const camStream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: currentFacingMode }, 
+                audio: false 
+            });
+            const camTrack = camStream.getVideoTracks()[0];
+            
+            // Stop track layar
+            const screenTrack = localStream.getVideoTracks()[0];
+            screenTrack.stop();
+            localStream.removeTrack(screenTrack);
+            
+            // Masukkan track kamera
+            localStream.addTrack(camTrack);
+            
+            // Update PeerConnection
+            const sender = peerConnection.getSenders().find(s => s.track.kind === 'video');
+            if (sender) await sender.replaceTrack(camTrack);
+
+            // Update UI
+            const localVid = document.getElementById('localVideo');
+            if (localVid) localVid.srcObject = localStream;
+            
+            isScreenSharing = false;
+            btn.classList.remove('bg-blue-600', 'text-white');
+            btn.classList.add('bg-white/10', 'text-white');
+            showToast('Info', 'Screen sharing stopped', 'default');
+
+        } catch (e) {
+            console.error('Stop screen share error:', e);
+        }
+    } else {
+        // Nyalakan Share Screen
+        try {
+            const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+            const screenTrack = displayStream.getVideoTracks()[0];
+
+            // Stop track kamera lama
+            const camTrack = localStream.getVideoTracks()[0];
+            camTrack.stop();
+            localStream.removeTrack(camTrack);
+            
+            // Masukkan track layar
+            localStream.addTrack(screenTrack);
+
+            // Update PeerConnection
+            const sender = peerConnection.getSenders().find(s => s.track.kind === 'video');
+            if (sender) await sender.replaceTrack(screenTrack);
+
+            // Update UI
+            const localVid = document.getElementById('localVideo');
+            if (localVid) localVid.srcObject = localStream;
+
+            // Handle jika user stop dari browser native UI
+            screenTrack.onended = () => {
+                if (isScreenSharing) toggleScreenShare(); // Revert ke kamera
+            };
+
+            isScreenSharing = true;
+            btn.classList.remove('bg-white/10');
+            btn.classList.add('bg-blue-600', 'text-white');
+            showToast('Success', 'Screen sharing started', 'success');
+
+        } catch (e) {
+            console.error('Start screen share error:', e);
+            // User cancelled
+        }
+    }
+}
+
+
+
+
 
 // Minimize to floating bubble
 function minimizeVideoCall() {
@@ -822,104 +984,82 @@ function startCallTimer(timerId) { try { const el = document.getElementById(time
 
 
 // [MODIFIKASI] 6. Fungsi Inti WebRTC: Join Channel Signaling
+// [MODIFIKASI] 6. Fungsi Inti WebRTC: Join Channel Signaling
 async function joinSignalingChannel(roomId, isCaller) {
   if (callChannel) {
-    callChannel.unsubscribe(); // Bersihkan channel lama jika ada
+    callChannel.unsubscribe(); 
   }
 
-  // 1. Buat Peer Connection dengan server STUN/TURN
   console.log('Creating PeerConnection...');
   const iceServers = await getTurnServers();
   peerConnection = new RTCPeerConnection({ iceServers });
 
-  // Monitor connection state
   peerConnection.onconnectionstatechange = () => {
     console.log('PeerConnection connectionState changed:', peerConnection.connectionState);
     if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'disconnected') {
-      // Jangan spam toast, cukup log
       console.warn('Connection unstable or disconnected.');
     }
   };
 
-  // 2. Tambahkan track audio/video lokal ke koneksi
   if (localStream) {
     localStream.getTracks().forEach(track => {
-      console.log('Adding local track:', track.kind, 'enabled:', track.enabled);
       peerConnection.addTrack(track, localStream);
     });
   }
 
-  // 3. [PERBAIKAN UTAMA] Handle saat remote track diterima
+  // --- ON TRACK HANDLER ---
   peerConnection.ontrack = (event) => {
-    console.log('Got remote track, call connected!', event.track.kind);
+    console.log('Got remote track', event.track.kind);
     remoteStream = event.streams[0];
-
-    // Hentikan nada dering segera
     stopAllRingtones();
 
-    // A. UPDATE UI TERLEBIH DAHULU (Agar elemen Video/Audio tersedia di DOM)
-    // Kita ambil nama/avatar dari modal yang sedang aktif (incoming/outgoing) sebelum di-refresh
-    let targetName = 'User';
-    let targetAvatar = null;
-    const currentModal = document.getElementById('videoCallContainer') || document.getElementById('callModalContainer');
-    
-    if (currentModal) {
-      try { targetName = currentModal.querySelector('.call-name')?.textContent || targetName; } catch(e){}
-      try { targetAvatar = currentModal.querySelector('.call-avatar img')?.src || null; } catch(e){}
-    }
-
-    // Render UI 'Active' (Ini akan mereset DOM, makanya kita panggil duluan)
-    // Cek apakah ini video call atau voice call
+    // Gunakan data global untuk memastikan UI tidak blank
     const isVideoCall = event.track.kind === 'video' || document.getElementById('videoCallContainer');
     
     if (isVideoCall) {
-      createVideoCallUI('active', targetName, targetAvatar);
+      createVideoCallUI('active', activeCallDetails.name, activeCallDetails.avatar);
     } else {
-      createCallUI('active', targetName, targetAvatar);
+      createCallUI('active', activeCallDetails.name, activeCallDetails.avatar);
     }
 
-    // B. SETELAH UI SIAP, BARU TEMPEL STREAM KE ELEMEN BARU
-    // Beri sedikit delay agar DOM benar-benar siap rendering
+    // Delay sedikit untuk memastikan DOM sudah di-replace sepenuhnya oleh createVideoCallUI
     setTimeout(() => {
-        const remoteVideo = document.getElementById('remoteVideo');
-        const remoteAudio = document.getElementById('remoteAudio');
+        const rVideo = document.getElementById('remoteVideo');
+        const rAudio = document.getElementById('remoteAudio');
 
-        // Setup Audio
-        if (remoteAudio) {
-            remoteAudio.srcObject = remoteStream;
-            remoteAudio.volume = 1;
-            remoteAudio.play().catch(e => console.warn('Audio autoplay blocked:', e));
-        }
-
-        // Setup Video (Jika ada track video)
-        if (remoteVideo && event.track.kind === 'video') {
-            console.log('Attaching remote video stream...');
-            remoteVideo.srcObject = remoteStream;
-            remoteVideo.playsInline = true;
-            remoteVideo.autoplay = true;
-            remoteVideo.muted = false; // Remote video harus bersuara
+        // Handle Remote Audio
+        if (rAudio) { 
+            rAudio.srcObject = remoteStream; 
+            rAudio.play().catch(e => console.warn('Audio autoplay blocked:', e)); 
             
-            // Paksa play
-            remoteVideo.play().catch(err => {
-                console.warn('Video autoplay error:', err);
-                // Fallback: tampilkan tombol play jika autoplay gagal
-                showToast('Info', 'Tap to view video', 'info');
-            });
-        }
-
-        // Start Visualizer (Safe Mode)
-        try {
-            if (window.waveVisualizer && typeof window.waveVisualizer.startFromMediaStream === 'function') {
-                // Gunakan try-catch di dalam agar tidak merusak flow
-                window.waveVisualizer.startFromMediaStream(remoteStream);
+            // [FIX AUDIO ERROR] Coba jalankan visualizer dengan aman
+            try {
+                if (window.waveVisualizer && typeof window.waveVisualizer.startFromMediaStream === 'function') {
+                   // Stop dulu jika sudah jalan agar tidak error "already connected"
+                   window.waveVisualizer.stopVisualizer(); 
+                   window.waveVisualizer.startFromMediaStream(remoteStream);
+                }
+            } catch (wvErr) {
+                console.warn('Wave visualizer skipped:', wvErr);
             }
-        } catch (wvErr) {
-            console.warn('Wave visualizer error ignored:', wvErr);
         }
-    }, 100);
-  };
 
-  // 4. Setup Channel Supabase untuk signaling
+        // Handle Remote Video
+        if (rVideo && event.track.kind === 'video') { 
+            console.log('Attaching remote video stream to element');
+            rVideo.srcObject = remoteStream; 
+            rVideo.muted = false; // Pastikan tidak mute agar suara lawan masuk
+            
+            rVideo.play().catch(e => {
+                console.warn('Video autoplay error:', e);
+                // Jika autoplay gagal (biasanya browser policy), user harus interaksi
+                showToast('Info', 'Tap screen to view video', 'info');
+            }); 
+        }
+    }, 200); // Naikkan delay sedikit ke 200ms agar DOM stabil
+  };
+  // ... (Sisa kode di bawah ini sama seperti sebelumnya, tidak perlu diubah) ...
+  // Setup Channel Supabase untuk signaling
   callChannel = supabase.channel(roomId, {
     config: {
       presence: { key: window.currentUser.id },
@@ -927,7 +1067,6 @@ async function joinSignalingChannel(roomId, isCaller) {
     },
   });
 
-  // 5. Kirim ICE candidates ke peer
   peerConnection.onicecandidate = (event) => {
     if (event.candidate) {
       callChannel.send({
@@ -938,11 +1077,9 @@ async function joinSignalingChannel(roomId, isCaller) {
     }
   };
 
-  // 6. Dengarkan event dari channel
   callChannel
     .on('broadcast', { event: 'im-ready' }, async ({ payload }) => {
         if (isCaller) {
-            console.log('[CALLER] Callee ready. Sending offer...');
             try {
               const offer = await peerConnection.createOffer();
               await peerConnection.setLocalDescription(offer);
@@ -952,13 +1089,8 @@ async function joinSignalingChannel(roomId, isCaller) {
     })
     .on('broadcast', { event: 'offer' }, async ({ payload }) => {
       if (!isCaller) {
-        console.log('[CALLEE] Received offer.');
         try {
-          if (peerConnection.signalingState !== "stable") {
-             // Jika terjadi tabrakan offer (glare), rollback atau abaikan
-             console.warn('Signaling state not stable, ignoring dup offer');
-             return;
-          }
+          if (peerConnection.signalingState !== "stable") return;
           await peerConnection.setRemoteDescription(payload.offer);
           const answer = await peerConnection.createAnswer();
           await peerConnection.setLocalDescription(answer);
@@ -968,7 +1100,6 @@ async function joinSignalingChannel(roomId, isCaller) {
     })
     .on('broadcast', { event: 'answer' }, async ({ payload }) => {
       if (isCaller) {
-        console.log('[CALLER] Received answer.');
         try {
           await peerConnection.setRemoteDescription(payload.answer);
         } catch (err) { console.error(err); }
@@ -994,6 +1125,7 @@ async function joinSignalingChannel(roomId, isCaller) {
   
   supabaseChannels.push(callChannel);
 }
+
 
 
 
