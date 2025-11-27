@@ -21,6 +21,9 @@ let messagesList = [];
       let dmSenderCol = 'sender_id';
       let dmReceiverCol = 'receiver_id';
       let hasFollowsTable = false;
+      // ... variabel lainnya ...
+      let isVideoSwapped = false; // Status apakah tampilan video ditukar
+
       
 
 
@@ -686,29 +689,22 @@ async function answerVideoCall() {
 }
 
 // Create Video Call UI
-// Create Video Call UI (FIXED: TRANSITION FROM INCOMING TO ACTIVE)
+// Create Video Call UI (FIXED: Swap Feature Added)
 function createVideoCallUI(state, name, avatarUrl) {
   console.log('[DEBUG VIDEO CALL] createVideoCallUI', state);
   
   const finalName = name || activeCallDetails.name || 'User';
   const finalAvatar = avatarUrl || activeCallDetails.avatar;
-
   const existingContainer = document.getElementById('videoCallContainer');
   
-  // [PERBAIKAN LOGIKA DI SINI]
-  // Cek apakah UI saat ini sedang menampilkan tombol terima (artinya masih incoming)
+  // Logic prevent re-render jika active (tetap sama)
   const isCurrentlyIncoming = document.getElementById('videoAcceptBtn') !== null;
-
-  // Jika container sudah ada, state yang diminta 'active', DAN UI bukan incoming -> baru kita return (skip rebuild)
-  // Artinya: Jika UI masih incoming, kita WAJIB lanjut ke bawah untuk me-replace HTML-nya.
-  if (existingContainer && state === 'active' && !isCurrentlyIncoming) {
-     return; 
-  }
-
-  // Hapus container lama untuk di-render ulang dengan tombol yang baru
+  if (existingContainer && state === 'active' && !isCurrentlyIncoming) return;
   if (existingContainer) existingContainer.remove();
 
-  // Cleanup modal suara & bubble
+  // Reset status swap saat buat UI baru
+  isVideoSwapped = false; 
+
   const oldVoice = document.getElementById('callModalContainer');
   if(oldVoice) { oldVoice.style.display = 'none'; oldVoice.innerHTML = ''; }
   document.getElementById('videoFloatingBubble')?.remove();
@@ -721,7 +717,7 @@ function createVideoCallUI(state, name, avatarUrl) {
         
         <video id="remoteVideo" class="w-full h-full object-cover bg-black" autoplay playsinline></video>
 
-        <div id="localPip" class="absolute right-4 bottom-28 w-28 h-36 md:w-32 md:h-48 rounded-xl overflow-hidden bg-slate-800 border border-slate-600 shadow-lg z-20">
+        <div id="localPip" class="absolute right-4 bottom-28 w-28 h-36 md:w-32 md:h-48 rounded-xl overflow-hidden bg-slate-800 border border-slate-600 shadow-lg z-20 cursor-pointer hover:scale-105 transition-transform duration-200 ring-2 ring-transparent hover:ring-cyan-400">
           <video id="localVideo" class="w-full h-full object-cover transform -scale-x-100" autoplay muted playsinline></video>
         </div>
 
@@ -765,12 +761,14 @@ function createVideoCallUI(state, name, avatarUrl) {
   document.body.insertAdjacentHTML('beforeend', html);
   lucide.createIcons();
 
-  // Re-attach local stream to PIP if available
+  // Re-attach local stream
   if (localStream) {
       const localVid = document.getElementById('localVideo');
       if (localVid) {
           localVid.srcObject = localStream;
           localVid.muted = true;
+          // Pastikan mirroring benar saat init
+          localVid.style.transform = currentFacingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
       }
   }
 
@@ -785,10 +783,18 @@ function createVideoCallUI(state, name, avatarUrl) {
       document.getElementById('videoCamBtn')?.addEventListener('click', toggleCam);
       document.getElementById('videoSwitchCamBtn')?.addEventListener('click', switchCamera);
       document.getElementById('videoShareBtn')?.addEventListener('click', toggleScreenShare);
+      
+      // [EVENT LISTENER BARU UNTUK SWAP]
+      document.getElementById('localPip')?.addEventListener('click', swapVideoViews);
   }
 
   if (state === 'active') startCallTimer('videoCallTimer');
 }
+
+
+
+
+
 
 
 
@@ -805,6 +811,7 @@ function toggleCam() { if (!localStream) return; const v = localStream.getVideoT
 
 // Switch camera (mobile front/back)
 // [FIX BUG] Switch Camera (Front/Back)
+// [PERBAIKAN] Switch Camera (Fix Mirroring & Facing Mode)
 async function switchCamera() {
   try {
     if (!localStream) return;
@@ -813,7 +820,7 @@ async function switchCamera() {
         return;
     }
 
-    // Toggle facing mode
+    // Toggle mode
     const newMode = currentFacingMode === 'user' ? 'environment' : 'user';
     
     // Stop track video lama
@@ -823,41 +830,50 @@ async function switchCamera() {
     // Request stream baru
     const newStream = await navigator.mediaDevices.getUserMedia({ 
         video: { facingMode: { exact: newMode } }, // Coba paksa mode
-        audio: false // Audio jangan di-restart agar tidak putus
+        audio: false 
     }).catch(async () => {
-        // Fallback jika 'exact' gagal (misal di desktop)
+        // Fallback jika 'exact' gagal (misal di desktop atau browser tertentu)
         return await navigator.mediaDevices.getUserMedia({ 
-            video: true, 
+            video: { facingMode: newMode }, 
             audio: false 
         });
     });
 
     const newVideoTrack = newStream.getVideoTracks()[0];
     
-    // Ganti track di localStream
+    // Ganti track di localStream (agar state global terupdate)
     localStream.removeTrack(oldVideoTrack);
     localStream.addTrack(newVideoTrack);
 
     // Ganti track di PeerConnection (agar lawan bicara melihat kamera baru)
-    const sender = peerConnection.getSenders().find(s => s.track.kind === 'video');
-    if (sender) {
-        await sender.replaceTrack(newVideoTrack);
+    if (peerConnection) {
+        const sender = peerConnection.getSenders().find(s => s.track.kind === 'video');
+        if (sender) {
+            await sender.replaceTrack(newVideoTrack);
+        }
     }
 
-    // Update status
+    // Update status global
     currentFacingMode = newMode;
     
-    // Update Preview Lokal
-    const localVid = document.getElementById('localVideo'); 
-    if (localVid) { 
-        localVid.srcObject = null; // Reset dulu
-        localVid.srcObject = localStream; 
+    // Update UI (Cek apakah sedang di-swap atau tidak)
+    const largeVideo = document.getElementById('remoteVideo');
+    const smallVideo = document.getElementById('localVideo');
+
+    // Tentukan elemen mana yang sedang memegang local stream
+    const targetVideoEl = isVideoSwapped ? largeVideo : smallVideo;
+    
+    if (targetVideoEl) { 
+        targetVideoEl.srcObject = null; // Reset sebentar trigger refresh
+        targetVideoEl.srcObject = localStream;
         
-        // Mirror effect hanya untuk kamera depan
-        if (currentFacingMode === 'user') {
-            localVid.style.transform = 'scaleX(-1)';
+        // [FIX MIRRORING]
+        // Kamera Depan ('user') -> Mirror (scaleX -1)
+        // Kamera Belakang ('environment') -> Normal (scaleX 1)
+        if (newMode === 'user') {
+            targetVideoEl.style.transform = 'scaleX(-1)';
         } else {
-            localVid.style.transform = 'scaleX(1)';
+            targetVideoEl.style.transform = 'scaleX(1)';
         }
     }
     
@@ -865,13 +881,12 @@ async function switchCamera() {
 
   } catch (err) { 
     console.error('switchCamera error', err); 
-    // Revert jika gagal (nyalakan ulang kamera lama)
+    // Revert jika gagal
     try {
         const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
         const track = fallbackStream.getVideoTracks()[0];
         localStream.addTrack(track);
-        const localVid = document.getElementById('localVideo');
-        if(localVid) localVid.srcObject = localStream;
+        // Restore view...
     } catch(e){}
     
     showToast('Error', 'Could not switch camera. Device might not support it.', 'error'); 
@@ -882,14 +897,70 @@ async function switchCamera() {
 
 
 
+
+
+
+
+// [FITUR BARU] Swap Video Tampilan (PIP <-> Fullscreen)
+function swapVideoViews() {
+    const remoteVideo = document.getElementById('remoteVideo');
+    const localVideo = document.getElementById('localVideo');
+    
+    if (!remoteVideo || !localVideo) return;
+
+    isVideoSwapped = !isVideoSwapped;
+
+    // Kita tukar srcObject-nya
+    const streamA = remoteVideo.srcObject;
+    const streamB = localVideo.srcObject;
+
+    remoteVideo.srcObject = streamB;
+    localVideo.srcObject = streamA;
+
+    // Atur ulang properti video agar sesuai kontennya
+    // Jika isVideoSwapped = true, berarti Remote ada di Kecil, Local ada di Besar
+    
+    if (isVideoSwapped) {
+        // Video Besar = Local (Harus Mute & Mirroring sesuai kamera)
+        remoteVideo.muted = true; 
+        remoteVideo.style.transform = currentFacingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
+        
+        // Video Kecil = Remote (Unmute & Normal)
+        localVideo.muted = false; 
+        localVideo.style.transform = 'scaleX(1)';
+    } else {
+        // Video Besar = Remote (Unmute & Normal)
+        remoteVideo.muted = false;
+        remoteVideo.style.transform = 'scaleX(1)';
+
+        // Video Kecil = Local (Mute & Mirroring sesuai kamera)
+        localVideo.muted = true;
+        localVideo.style.transform = currentFacingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
+    }
+}
+
+
+
+
+
+
+
 // [FITUR BARU] Toggle Screen Share
+// [PERBAIKAN] Toggle Screen Share (Mobile Safe)
 async function toggleScreenShare() {
     if (!peerConnection) return;
     const btn = document.getElementById('videoShareBtn');
 
+    // Cek dukungan browser (HP seringkali tidak support getDisplayMedia)
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        showToast('Error', 'Screen sharing is not supported on this device/browser.', 'destructive');
+        return;
+    }
+
     if (isScreenSharing) {
         // Matikan Share Screen -> Kembali ke Kamera
         try {
+            // Nyalakan kamera lagi sesuai mode terakhir
             const camStream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: currentFacingMode }, 
                 audio: false 
@@ -900,8 +971,6 @@ async function toggleScreenShare() {
             const screenTrack = localStream.getVideoTracks()[0];
             screenTrack.stop();
             localStream.removeTrack(screenTrack);
-            
-            // Masukkan track kamera
             localStream.addTrack(camTrack);
             
             // Update PeerConnection
@@ -909,8 +978,12 @@ async function toggleScreenShare() {
             if (sender) await sender.replaceTrack(camTrack);
 
             // Update UI
-            const localVid = document.getElementById('localVideo');
-            if (localVid) localVid.srcObject = localStream;
+            const targetEl = isVideoSwapped ? document.getElementById('remoteVideo') : document.getElementById('localVideo');
+            if (targetEl) {
+                targetEl.srcObject = localStream;
+                // Kembalikan efek mirror jika kamera depan
+                if (currentFacingMode === 'user') targetEl.style.transform = 'scaleX(-1)';
+            }
             
             isScreenSharing = false;
             btn.classList.remove('bg-blue-600', 'text-white');
@@ -930,8 +1003,6 @@ async function toggleScreenShare() {
             const camTrack = localStream.getVideoTracks()[0];
             camTrack.stop();
             localStream.removeTrack(camTrack);
-            
-            // Masukkan track layar
             localStream.addTrack(screenTrack);
 
             // Update PeerConnection
@@ -939,12 +1010,16 @@ async function toggleScreenShare() {
             if (sender) await sender.replaceTrack(screenTrack);
 
             // Update UI
-            const localVid = document.getElementById('localVideo');
-            if (localVid) localVid.srcObject = localStream;
+            const targetEl = isVideoSwapped ? document.getElementById('remoteVideo') : document.getElementById('localVideo');
+            if (targetEl) {
+                targetEl.srcObject = localStream;
+                // Screen share TIDAK BOLEH dimirror
+                targetEl.style.transform = 'scaleX(1)';
+            }
 
             // Handle jika user stop dari browser native UI
             screenTrack.onended = () => {
-                if (isScreenSharing) toggleScreenShare(); // Revert ke kamera
+                if (isScreenSharing) toggleScreenShare(); 
             };
 
             isScreenSharing = true;
@@ -954,10 +1029,15 @@ async function toggleScreenShare() {
 
         } catch (e) {
             console.error('Start screen share error:', e);
-            // User cancelled
+            if (e.name === 'NotAllowedError') {
+                // User cancelled
+            } else {
+                showToast('Error', 'Screen sharing failed: ' + e.message, 'error');
+            }
         }
     }
 }
+
 
 
 
